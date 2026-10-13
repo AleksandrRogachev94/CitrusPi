@@ -167,6 +167,8 @@ class _SoilMoisture:
     def __init__(self, bus: Any, address: int) -> None:
         self._bus = bus
         self._addr = address
+        # Probe presence on I2C bus; raises OSError if sensor is not connected
+        self._bus.write_i2c_block_data(self._addr, self._TOUCH_BASE, [self._TOUCH_OFFSET])
 
     def read_raw(self) -> int:
         """Read capacitive touch value taking median of 3 samples for glitch filtering."""
