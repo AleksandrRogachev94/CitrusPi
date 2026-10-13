@@ -19,7 +19,15 @@ sudo apt-get install -y \
     i2c-tools \
     v4l-utils
 
-# 3. Create virtual environment with system site-packages (for OpenCV access)
+# 3. Preserve microSD card with log2ram (redirects /var/log to RAM)
+if ! dpkg -s log2ram >/dev/null 2>&1; then
+    echo "==> Setting up log2ram to protect microSD card..."
+    echo "deb [signed-by=/usr/share/keyrings/azlux-archive-keyring.gpg] http://packages.azlux.fr/debian/ bookworm main" | sudo tee /etc/apt/sources.list.d/azlux.list >/dev/null
+    sudo wget -qO /usr/share/keyrings/azlux-archive-keyring.gpg https://azlux.fr/repo.gpg || true
+    sudo apt-get update >/dev/null 2>&1 && sudo apt-get install -y log2ram || echo "Note: log2ram skipped (can be installed manually)."
+fi
+
+# 4. Create virtual environment with system site-packages (for OpenCV access)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
@@ -31,7 +39,7 @@ echo "==> Installing Python dependencies..."
 pip install --upgrade pip
 pip install -e .
 
-# 4. Install & start systemd service
+# 5. Install & start systemd service
 echo "==> Installing systemd background service..."
 sudo cp deploy/citruspi.service /etc/systemd/system/
 sudo systemctl daemon-reload
@@ -47,3 +55,4 @@ echo "  - Check service status:   sudo systemctl status citruspi"
 echo "  - View live logs:         sudo journalctl -u citruspi -f"
 echo "  - Check I2C sensors:      sudo i2cdetect -y 1"
 echo "  - Check USB camera:       v4l2-ctl --list-devices"
+echo "  - Check RAM logging:      systemctl status log2ram"

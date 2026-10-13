@@ -18,8 +18,27 @@ rsync -avz --exclude '.venv' . pi@citruspi.local:~/citruspi
 ssh pi@citruspi.local
 cd ~/citruspi && ./deploy/setup-pi.sh
 ```
+*Note: The script automatically enables I2C, installs dependencies, and configures `log2ram` to protect your microSD card from write wear.*
 
 Done. Open **http://citruspi.local:8000** in your browser.
+
+---
+
+## MicroSD Card Protection (`log2ram`)
+
+Raspberry Pi OS writes constant syslog data to disk, which wears out consumer microSD cards over multi-month deployments.
+
+`setup-pi.sh` sets up `log2ram` automatically. To install or verify it manually:
+
+```bash
+# Add repo and install log2ram
+echo "deb [signed-by=/usr/share/keyrings/azlux-archive-keyring.gpg] http://packages.azlux.fr/debian/ bookworm main" | sudo tee /etc/apt/sources.list.d/azlux.list
+sudo wget -qO /usr/share/keyrings/azlux-archive-keyring.gpg https://azlux.fr/repo.gpg
+sudo apt update && sudo apt install -y log2ram
+
+# Verify active
+systemctl status log2ram
+```
 
 ---
 
@@ -48,4 +67,7 @@ sudo i2cdetect -y 1
 
 # Verify USB camera
 v4l2-ctl --list-devices
+
+# Check log2ram status
+systemctl status log2ram
 ```
