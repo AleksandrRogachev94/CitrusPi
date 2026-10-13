@@ -323,6 +323,17 @@ button:hover { opacity: 0.85; }
     display: inline-block;
 }
 
+.vpd-badge {
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    display: inline-block;
+}
+.vpd-opt  { background: #dcfce7; color: #166534; }
+.vpd-high { background: #fee2e2; color: #991b1b; }
+.vpd-low  { background: #e0f2fe; color: #075985; }
+
 /* ── Responsive ───────────────────────────────────────────── */
 
 @media (max-width: 640px) {

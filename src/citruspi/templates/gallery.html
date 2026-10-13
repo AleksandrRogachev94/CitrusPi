@@ -40,19 +40,22 @@ let tlIndex = 0;
 let speeds = [500, 250, 1000]; // 2fps, 4fps, 1fps
 let speedIdx = 0;
 
+function showFrame() {
+    if (!photos.length) return;
+    const img = document.getElementById('timelapse-img');
+    const counter = document.getElementById('timelapse-counter');
+    if (!img || !counter) return;
+    img.src = photos[tlIndex].url;
+    counter.textContent = `${photos[tlIndex].date}  (${tlIndex + 1}/${photos.length})`;
+    tlIndex = (tlIndex + 1) % photos.length;
+}
+
 function startTimelapse() {
     if (!photos.length) return;
     const overlay = document.getElementById('timelapse-overlay');
-    const img = document.getElementById('timelapse-img');
-    const counter = document.getElementById('timelapse-counter');
     overlay.style.display = 'flex';
     tlIndex = 0;
 
-    function showFrame() {
-        img.src = photos[tlIndex].url;
-        counter.textContent = `${photos[tlIndex].date}  (${tlIndex + 1}/${photos.length})`;
-        tlIndex = (tlIndex + 1) % photos.length;
-    }
     showFrame();
     clearInterval(tlInterval);
     tlInterval = setInterval(showFrame, speeds[speedIdx]);

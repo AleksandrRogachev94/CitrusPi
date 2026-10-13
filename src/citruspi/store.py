@@ -52,6 +52,13 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             "ALTER TABLE readings ADD COLUMN light_lux REAL;",
         ],
     ),
+    (
+        3,
+        "add_vpd_kpa_column",
+        [
+            "ALTER TABLE readings ADD COLUMN vpd_kpa REAL;",
+        ],
+    ),
 ]
 
 
@@ -135,6 +142,7 @@ class Store:
             root_c = reading.get("root_temp_c")
             root_f = reading.get("root_temp_f")
             light = reading.get("light_lux")
+            vpd = reading.get("vpd_kpa")
         else:
             ts = reading.timestamp
             temp_c = reading.temp_c
@@ -145,6 +153,7 @@ class Store:
             root_c = reading.root_temp_c
             root_f = reading.root_temp_f
             light = reading.light_lux
+            vpd = reading.vpd_kpa
 
         conn = self._get_conn()
         with conn:
@@ -152,11 +161,11 @@ class Store:
                 """
                 INSERT INTO readings (
                     timestamp, temp_c, temp_f, humidity, pressure, soil_moisture,
-                    root_temp_c, root_temp_f, light_lux
+                    root_temp_c, root_temp_f, light_lux, vpd_kpa
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
-                (ts, temp_c, temp_f, humidity, pressure, soil, root_c, root_f, light),
+                (ts, temp_c, temp_f, humidity, pressure, soil, root_c, root_f, light, vpd),
             )
 
     # ── Read Operations ───────────────────────────────────────────────────────

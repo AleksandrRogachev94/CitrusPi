@@ -2,12 +2,49 @@
 {% block content %}
 
 {% if is_mock %}
-<div class="banner mock-banner">🧪 Mock sensors active — showing simulated data for development</div>
+<div class="banner mock-banner">🧪 Mock sensors active — showing simulated telemetry for development</div>
 {% endif %}
 
+<!-- Sensor Cards Container (Polled every 30s by htmx, never interrupts camera stream) -->
 <div id="live-readings" hx-get="/fragments/readings" hx-trigger="every 30s" hx-swap="innerHTML">
     {% include "_readings.html" %}
 </div>
+
+<!-- Camera Section: Daily Photo & On-Demand Live Stream -->
+<section class="card photo-card">
+    <div class="photo-header">
+        <div>
+            <h2>📷 Tent Camera</h2>
+            <div class="photo-sub">Daily photo scheduled at {{ "%02d:%02d"|format(config.daily_capture_hour, config.daily_capture_minute) }}</div>
+        </div>
+        <div class="photo-actions">
+            <button type="button" id="toggle-stream-btn" class="btn-secondary" onclick="toggleStream()">
+                ▶ Live Stream
+            </button>
+            <button type="button" hx-post="/api/capture" hx-swap="none" hx-on::after-request="location.reload()">
+                📸 Snap Now
+            </button>
+        </div>
+    </div>
+
+    <!-- Live Stream Container (toggled on demand to save Pi CPU) -->
+    <div id="live-stream-box" style="display:none; margin-bottom: 1rem;">
+        <div class="stream-banner">🔴 Live Camera Feed (~5 fps)</div>
+        <img id="live-stream-img" src="" alt="Live feed" class="latest-photo">
+    </div>
+
+    <!-- Latest Captured Photo -->
+    <div id="latest-photo-box">
+        {% if photo %}
+            <a href="{{ photo.url }}" target="_blank">
+                <img src="{{ photo.url }}" alt="Latest capture" class="latest-photo">
+            </a>
+            <div class="photo-meta">Latest timelapse frame: <strong>{{ photo.date }}</strong></div>
+        {% else %}
+            <div class="no-photo">No daily photo captured yet. Click "📸 Snap Now" or wait for scheduled time.</div>
+        {% endif %}
+    </div>
+</section>
 
 <!-- 24h Chart -->
 <section class="card chart-card">
@@ -16,15 +53,42 @@
 </section>
 
 <script>
+function toggleStream() {
+    const box = document.getElementById('live-stream-box');
+    const img = document.getElementById('live-stream-img');
+    const btn = document.getElementById('toggle-stream-btn');
+
+    if (box.style.display === 'none') {
+        img.src = '/stream';
+        box.style.display = 'block';
+        btn.textContent = '⏹ Stop Stream';
+        btn.classList.add('btn-active');
+    } else {
+        img.src = '';
+        box.style.display = 'none';
+        btn.textContent = '▶ Live Stream';
+        btn.classList.remove('btn-active');
+    }
+}
+
+let historyChartInstance = null;
+
 async function loadChart() {
     const res = await fetch('/api/history?hours=24');
     const data = await res.json();
     if (!data.length) return;
 
     const labels = data.map(r => r.timestamp);
-    const ctx = document.getElementById('historyChart').getContext('2d');
+    const canvas = document.getElementById('historyChart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
 
-    new Chart(ctx, {
+    // Destroy existing instance to prevent "Canvas is already in use" Chart.js v4 error
+    if (historyChartInstance) {
+        historyChartInstance.destroy();
+    }
+
+    historyChartInstance = new Chart(ctx, {
         type: 'line',
         data: {
             labels,
@@ -50,13 +114,23 @@ async function loadChart() {
                     pointRadius: 0,
                 },
                 {
+                    label: 'VPD (kPa)',
+                    data: data.map(r => r.vpd_kpa),
+                    borderColor: '#ef4444',
+                    borderDash: [4, 4],
+                    fill: false,
+                    tension: 0.3,
+                    yAxisID: 'y2',
+                    pointRadius: 0,
+                },
+                {
                     label: 'Soil Moisture',
                     data: data.map(r => r.soil_moisture),
                     borderColor: '#65a30d',
                     backgroundColor: 'rgba(101,163,13,0.08)',
                     fill: true,
                     tension: 0.3,
-                    yAxisID: 'y2',
+                    yAxisID: 'y3',
                     pointRadius: 0,
                 },
             ],
@@ -77,11 +151,14 @@ async function loadChart() {
                       grid: { color: 'rgba(0,0,0,0.04)' } },
                 y1: { position: 'right', title: { display: true, text: '%RH' },
                       grid: { display: false } },
-                y2: { display: false },
+                y2: { position: 'right', title: { display: true, text: 'VPD (kPa)' },
+                      grid: { display: false } },
+                y3: { display: false },
             },
         },
     });
 }
+
 loadChart();
 // Refresh chart every 5 min
 setInterval(loadChart, 300000);

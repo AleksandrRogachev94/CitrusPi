@@ -57,3 +57,10 @@ def test_gallery_loads(client: TestClient) -> None:
     r = client.get("/gallery")
     assert r.status_code == 200
     assert "Gallery" in r.text
+
+
+def test_fragments_readings_loads(client: TestClient) -> None:
+    r = client.get("/fragments/readings")
+    assert r.status_code == 200
+    assert "Temperature" in r.text
+    assert "Humidity" in r.text

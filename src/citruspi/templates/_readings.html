@@ -1,107 +1,65 @@
-<!-- Sensor Cards -->
+<!-- Sensor Cards Fragment (polled by htmx every 30s) -->
 <section class="cards">
+    <!-- Temperature Card -->
     <div class="card sensor-card temp">
         <div class="card-icon">🌡️</div>
         <div class="card-body">
             <div class="card-label">Temperature</div>
             <div class="card-value">
-                {% if reading %}
+                {% if reading and reading.temp_f is not none %}
                     {{ "%.1f"|format(reading.temp_f) }}<span class="unit">°F</span>
                 {% else %}
-                    —
+                    <span class="muted">—</span>
                 {% endif %}
             </div>
             <div class="card-sub">
-                {% if reading and reading.temp_c %}{{ "%.1f"|format(reading.temp_c) }}°C{% endif %}
+                {% if reading and reading.temp_c is not none %}
+                    {{ "%.1f"|format(reading.temp_c) }}°C
+                {% endif %}
+                {% if reading and reading.root_temp_f is not none %}
+                    · Root: {{ "%.1f"|format(reading.root_temp_f) }}°F
+                {% endif %}
             </div>
         </div>
     </div>
 
+    <!-- Humidity & VPD Card -->
     <div class="card sensor-card humidity">
         <div class="card-icon">💧</div>
         <div class="card-body">
-            <div class="card-label">Humidity</div>
+            <div class="card-label">Humidity & VPD</div>
             <div class="card-value">
-                {% if reading %}
+                {% if reading and reading.humidity is not none %}
                     {{ "%.1f"|format(reading.humidity) }}<span class="unit">%</span>
                 {% else %}
-                    —
+                    <span class="muted">—</span>
                 {% endif %}
             </div>
-            <div class="card-sub">Relative humidity</div>
+            <div class="card-sub">
+                {% if reading and reading.vpd_kpa is not none %}
+                    <span class="vpd-badge {% if reading.vpd_kpa > 1.4 %}vpd-high{% elif reading.vpd_kpa < 0.6 %}vpd-low{% else %}vpd-opt{% endif %}">
+                        VPD: {{ "%.2f"|format(reading.vpd_kpa) }} kPa
+                    </span>
+                {% else %}
+                    Relative humidity
+                {% endif %}
+            </div>
         </div>
     </div>
 
+    <!-- Soil Moisture Card -->
     <div class="card sensor-card soil">
         <div class="card-icon">🌱</div>
         <div class="card-body">
             <div class="card-label">Soil Moisture</div>
             <div class="card-value">
-                {% if reading %}
+                {% if reading and reading.soil_moisture is not none %}
                     {{ reading.soil_moisture }}<span class="unit">raw</span>
                 {% else %}
-                    —
+                    <span class="muted">—</span>
                 {% endif %}
             </div>
             <div class="card-sub">Capacitive (↑ = wetter)</div>
         </div>
     </div>
 </section>
-
-<!-- Camera Section: Daily Photo & On-Demand Live Stream -->
-<section class="card photo-card">
-    <div class="photo-header">
-        <div>
-            <h2>📷 Tent Camera</h2>
-            <div class="photo-sub">Daily photo scheduled at {{ "%02d:%02d"|format(config.daily_capture_hour, config.daily_capture_minute) }}</div>
-        </div>
-        <div class="photo-actions">
-            <button type="button" id="toggle-stream-btn" class="btn-secondary" onclick="toggleStream()">
-                ▶ Live Stream
-            </button>
-            <button type="button" hx-post="/api/capture" hx-swap="none" onclick="setTimeout(()=>location.reload(), 800)">
-                📸 Snap Now
-            </button>
-        </div>
-    </div>
-
-    <!-- Live Stream Container (toggled on demand to save Pi CPU) -->
-    <div id="live-stream-box" style="display:none; margin-bottom: 1rem;">
-        <div class="stream-banner">🔴 Live Camera Feed (~5 fps)</div>
-        <img id="live-stream-img" src="" alt="Live feed" class="latest-photo">
-    </div>
-
-    <!-- Latest Captured Photo -->
-    <div id="latest-photo-box">
-        {% if photo %}
-            <a href="{{ photo.url }}" target="_blank">
-                <img src="{{ photo.url }}" alt="Latest capture" class="latest-photo">
-            </a>
-            <div class="photo-meta">Latest timelapse frame: <strong>{{ photo.date }}</strong></div>
-        {% else %}
-            <div class="no-photo">No daily photo captured yet. Click "📸 Snap Now" or wait for scheduled time.</div>
-        {% endif %}
-    </div>
-</section>
-
-<script>
-function toggleStream() {
-    const box = document.getElementById('live-stream-box');
-    const img = document.getElementById('live-stream-img');
-    const btn = document.getElementById('toggle-stream-btn');
-
-    if (box.style.display === 'none') {
-        // Start streaming
-        img.src = '/stream';
-        box.style.display = 'block';
-        btn.textContent = '⏹ Stop Stream';
-        btn.classList.add('btn-active');
-    } else {
-        // Stop streaming (cuts connection to free Pi resources)
-        img.src = '';
-        box.style.display = 'none';
-        btn.textContent = '▶ Live Stream';
-        btn.classList.remove('btn-active');
-    }
-}
-</script>

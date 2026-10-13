@@ -39,9 +39,16 @@ echo "==> Installing Python dependencies..."
 pip install --upgrade pip
 pip install -e .
 
-# 5. Install & start systemd service
-echo "==> Installing systemd background service..."
-sudo cp deploy/citruspi.service /etc/systemd/system/
+# 5. Install & start systemd service (dynamically configure user and path)
+CURRENT_USER="$(id -un)"
+echo "==> Configuring systemd service for user '$CURRENT_USER' in '$SCRIPT_DIR'..."
+sudo usermod -aG i2c,video "$CURRENT_USER" || true
+
+sed -e "s|User=pi|User=$CURRENT_USER|g" \
+    -e "s|WorkingDirectory=/home/pi/citruspi|WorkingDirectory=$SCRIPT_DIR|g" \
+    -e "s|/home/pi/citruspi/.venv/bin/python|$SCRIPT_DIR/.venv/bin/python|g" \
+    deploy/citruspi.service | sudo tee /etc/systemd/system/citruspi.service > /dev/null
+
 sudo systemctl daemon-reload
 sudo systemctl enable citruspi
 sudo systemctl restart citruspi

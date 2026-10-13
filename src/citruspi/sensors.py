@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import math
 import random
+import threading
 import time
 from typing import Any
 
@@ -168,10 +169,15 @@ class _SoilMoisture:
         self._addr = address
 
     def read_raw(self) -> int:
-        self._bus.write_i2c_block_data(self._addr, self._TOUCH_BASE, [self._TOUCH_OFFSET])
-        time.sleep(0.005)
-        d = self._bus.read_i2c_block_data(self._addr, self._TOUCH_BASE, 2)
-        return (d[0] << 8) | d[1]
+        """Read capacitive touch value taking median of 3 samples for glitch filtering."""
+        samples: list[int] = []
+        for _ in range(3):
+            self._bus.write_i2c_block_data(self._addr, self._TOUCH_BASE, [self._TOUCH_OFFSET])
+            time.sleep(0.005)
+            d = self._bus.read_i2c_block_data(self._addr, self._TOUCH_BASE, 2)
+            samples.append((d[0] << 8) | d[1])
+        samples.sort()
+        return samples[1]  # median of 3
 
 
 # ── Public interface ─────────────────────────────────────────────────────────
@@ -184,6 +190,8 @@ class SensorHub:
         self._mock: _MockSensors | None = None
         self._bme: _BME280 | None = None
         self._soil: _SoilMoisture | None = None
+        self._bus: Any = None
+        self._lock = threading.Lock()
 
         if config.mock_sensors:
             logger.info("Mock sensors enabled via config")
@@ -193,24 +201,27 @@ class SensorHub:
         try:
             import smbus2  # type: ignore[import-untyped]
 
-            bus = smbus2.SMBus(1)
-            self._bme = _BME280(bus, config.bme280_address)
-            logger.info("BME280 initialised at 0x%02X", config.bme280_address)
+            self._bus = smbus2.SMBus(1)
         except Exception as exc:
-            logger.warning("BME280 unavailable (%s) — falling back to mock", exc)
+            logger.warning("I2C bus 1 unavailable (%s) — falling back to mock", exc)
+            self._mock = _MockSensors()
+            return
 
         try:
-            import smbus2  # type: ignore[import-untyped]
+            self._bme = _BME280(self._bus, config.bme280_address)
+            logger.info("BME280 initialised at 0x%02X", config.bme280_address)
+        except Exception as exc:
+            logger.warning("BME280 unavailable (%s)", exc)
 
-            bus = smbus2.SMBus(1)
-            self._soil = _SoilMoisture(bus, config.soil_moisture_address)
+        try:
+            self._soil = _SoilMoisture(self._bus, config.soil_moisture_address)
             logger.info("Soil sensor initialised at 0x%02X", config.soil_moisture_address)
         except Exception as exc:
             logger.warning("Soil sensor unavailable (%s)", exc)
 
-        # If nothing real is available, go full mock
+        # If nothing real is available on the I2C bus, fall back to mock
         if self._bme is None and self._soil is None:
-            logger.info("No hardware detected — using mock sensor data")
+            logger.info("No sensors detected on I2C bus — using mock sensor data")
             self._mock = _MockSensors()
 
     @property
@@ -228,29 +239,30 @@ class SensorHub:
                 soil_moisture=raw.get("soil_moisture"),
             )
 
-        temp_c: float | None = None
-        humidity: float | None = None
-        pressure: float | None = None
-        soil_moisture: int | None = None
+        with self._lock:
+            temp_c: float | None = None
+            humidity: float | None = None
+            pressure: float | None = None
+            soil_moisture: int | None = None
 
-        if self._bme:
-            try:
-                bme_data = self._bme.read()
-                temp_c = bme_data.get("temp_c")
-                humidity = bme_data.get("humidity")
-                pressure = bme_data.get("pressure")
-            except Exception:
-                logger.exception("BME280 read error")
+            if self._bme:
+                try:
+                    bme_data = self._bme.read()
+                    temp_c = bme_data.get("temp_c")
+                    humidity = bme_data.get("humidity")
+                    pressure = bme_data.get("pressure")
+                except Exception:
+                    logger.exception("BME280 read error")
 
-        if self._soil:
-            try:
-                soil_moisture = self._soil.read_raw()
-            except Exception:
-                logger.exception("Soil moisture read error")
+            if self._soil:
+                try:
+                    soil_moisture = self._soil.read_raw()
+                except Exception:
+                    logger.exception("Soil moisture read error")
 
-        return Reading.create(
-            temp_c=temp_c,
-            humidity=humidity,
-            pressure=pressure,
-            soil_moisture=soil_moisture,
-        )
+            return Reading.create(
+                temp_c=temp_c,
+                humidity=humidity,
+                pressure=pressure,
+                soil_moisture=soil_moisture,
+            )

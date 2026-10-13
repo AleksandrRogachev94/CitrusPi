@@ -60,9 +60,22 @@ def load_config(path: str | Path | None = None) -> Config:
                 raw = yaml.safe_load(fh) or {}
             break  # first match wins
 
+    import dataclasses
+    import logging
+
+    logger = logging.getLogger(__name__)
+
     # Convert paths
     for key in ("data_dir", "captures_dir"):
-        if key in raw:
+        if key in raw and raw[key] is not None:
             raw[key] = Path(raw[key])
 
-    return Config(**raw)
+    valid_fields = {f.name for f in dataclasses.fields(Config)}
+    filtered: dict[str, Any] = {}
+    for k, v in raw.items():
+        if k in valid_fields:
+            filtered[k] = v
+        else:
+            logger.warning("Ignoring unrecognized config key: '%s'", k)
+
+    return Config(**filtered)

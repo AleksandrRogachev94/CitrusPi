@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -40,16 +39,16 @@ def create_app(config: Config, store: Store, sensors: SensorHub) -> FastAPI:
         name="captures",
     )
 
-    # ── Pages ─────────────────────────────────────────────────────────
+    # ── Pages (synchronous def runs in anyio threadpool) ──────────────
 
     @app.get("/", response_class=HTMLResponse)
-    async def dashboard(request: Request) -> HTMLResponse:
+    def dashboard(request: Request) -> HTMLResponse:
         latest = store.latest()
         photo = camera.latest_photo(config)
         return templates.TemplateResponse(
-            "dashboard.html",
-            {
-                "request": request,
+            request=request,
+            name="dashboard.html",
+            context={
                 "reading": latest,
                 "photo": photo,
                 "is_mock": sensors.is_mock,
@@ -58,12 +57,12 @@ def create_app(config: Config, store: Store, sensors: SensorHub) -> FastAPI:
         )
 
     @app.get("/gallery", response_class=HTMLResponse)
-    async def gallery(request: Request) -> HTMLResponse:
+    def gallery(request: Request) -> HTMLResponse:
         photos = camera.list_photos(config)
         return templates.TemplateResponse(
-            "gallery.html",
-            {
-                "request": request,
+            request=request,
+            name="gallery.html",
+            context={
                 "photos": photos,
             },
         )
@@ -84,19 +83,19 @@ def create_app(config: Config, store: Store, sensors: SensorHub) -> FastAPI:
     # ── JSON API ──────────────────────────────────────────────────────
 
     @app.get("/api/current")
-    async def api_current() -> dict[str, Any]:
+    def api_current() -> dict[str, Any]:
         return store.latest() or {}
 
     @app.get("/api/history")
-    async def api_history(hours: int = 24) -> list[dict[str, Any]]:
+    def api_history(hours: int = 24) -> list[dict[str, Any]]:
         return store.history(hours=hours)
 
     @app.get("/api/photos")
-    async def api_photos() -> list[dict[str, str]]:
+    def api_photos() -> list[dict[str, str]]:
         return camera.list_photos(config)
 
     @app.post("/api/capture")
-    async def api_capture() -> dict[str, Any]:
+    def api_capture() -> dict[str, Any]:
         """Manually trigger a photo capture."""
         path = camera.capture_frame(config)
         if path:
@@ -104,7 +103,7 @@ def create_app(config: Config, store: Store, sensors: SensorHub) -> FastAPI:
         return {"status": "error", "message": "capture failed"}
 
     @app.post("/api/poll")
-    async def api_poll() -> dict[str, Any]:
+    def api_poll() -> dict[str, Any]:
         """Manually poll sensors and store in SQLite."""
         reading = sensors.read()
         store.insert(reading)
@@ -113,16 +112,13 @@ def create_app(config: Config, store: Store, sensors: SensorHub) -> FastAPI:
     # ── Fragments for htmx ────────────────────────────────────────────
 
     @app.get("/fragments/readings", response_class=HTMLResponse)
-    async def fragment_readings(request: Request) -> HTMLResponse:
+    def fragment_readings(request: Request) -> HTMLResponse:
         latest = store.latest()
-        photo = camera.latest_photo(config)
         return templates.TemplateResponse(
-            "_readings.html",
-            {
-                "request": request,
+            request=request,
+            name="_readings.html",
+            context={
                 "reading": latest,
-                "photo": photo,
-                "config": config,
             },
         )
 

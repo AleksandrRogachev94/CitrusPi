@@ -9,9 +9,10 @@ from citruspi.store import Store
 def test_migrations_applied(tmp_path: Path) -> None:
     store = Store(tmp_path)
     migrations = store.get_applied_migrations()
-    assert len(migrations) >= 2
+    assert len(migrations) >= 3
     assert migrations[0]["version"] == 1
     assert migrations[1]["version"] == 2
+    assert migrations[2]["version"] == 3
 
 
 def test_insert_dict_and_latest(tmp_path: Path) -> None:
@@ -36,6 +37,7 @@ def test_insert_reading_model(tmp_path: Path) -> None:
     assert latest["root_temp_c"] == 14.5
     assert latest["root_temp_f"] == 58.1
     assert latest["light_lux"] == 450.0
+    assert latest["vpd_kpa"] is not None
 
 
 def test_history(tmp_path: Path) -> None:
