@@ -171,8 +171,9 @@ async function loadCharts(hours = currentRangeHours) {
     const data = await res.json();
     if (!data.length) return;
 
-    const labels = data.map(r => r.timestamp);
     const theme = getThemeColors();
+    const now = Date.now();
+    const minTime = now - (hours * 3600 * 1000);
 
     const timeConfig = {
         displayFormats: {
@@ -191,11 +192,10 @@ async function loadCharts(hours = currentRangeHours) {
         climateChartInstance = new Chart(cCanvas.getContext('2d'), {
             type: 'line',
             data: {
-                labels,
                 datasets: [
                     {
                         label: 'Temp (°F)',
-                        data: data.map(r => r.temp_f),
+                        data: data.map(r => ({ x: r.timestamp, y: r.temp_f })),
                         borderColor: '#f59e0b',
                         backgroundColor: 'rgba(245,158,11,0.08)',
                         fill: true,
@@ -207,7 +207,7 @@ async function loadCharts(hours = currentRangeHours) {
                     },
                     {
                         label: 'Humidity (%)',
-                        data: data.map(r => r.humidity),
+                        data: data.map(r => ({ x: r.timestamp, y: r.humidity })),
                         borderColor: '#38bdf8',
                         fill: false,
                         tension: 0.25,
@@ -218,7 +218,7 @@ async function loadCharts(hours = currentRangeHours) {
                     },
                     {
                         label: 'VPD (kPa)',
-                        data: data.map(r => r.vpd_kpa),
+                        data: data.map(r => ({ x: r.timestamp, y: r.vpd_kpa })),
                         borderColor: '#ef4444',
                         borderDash: [3, 3],
                         fill: false,
@@ -249,6 +249,8 @@ async function loadCharts(hours = currentRangeHours) {
                 scales: {
                     x: {
                         type: 'time',
+                        min: minTime,
+                        max: now,
                         time: timeConfig,
                         grid: { display: false },
                         ticks: { color: theme.textColor, maxTicksLimit: 7, maxRotation: 0, font: { size: 10 } },
@@ -288,11 +290,10 @@ async function loadCharts(hours = currentRangeHours) {
         soilChartInstance = new Chart(sCanvas.getContext('2d'), {
             type: 'line',
             data: {
-                labels,
                 datasets: [
                     {
                         label: 'Soil Moisture (raw)',
-                        data: data.map(r => r.soil_moisture),
+                        data: data.map(r => ({ x: r.timestamp, y: r.soil_moisture })),
                         borderColor: '#84cc16',
                         backgroundColor: 'rgba(132, 204, 22, 0.08)',
                         fill: true,
@@ -313,6 +314,8 @@ async function loadCharts(hours = currentRangeHours) {
                 scales: {
                     x: {
                         type: 'time',
+                        min: minTime,
+                        max: now,
                         time: timeConfig,
                         grid: { display: false },
                         ticks: { color: theme.textColor, maxTicksLimit: 7, maxRotation: 0, font: { size: 10 } },

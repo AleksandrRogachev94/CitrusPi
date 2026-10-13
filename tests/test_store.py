@@ -56,8 +56,8 @@ def test_history_downsampled(tmp_path: Path) -> None:
     for i in range(10):
         store.insert(Reading.create(temp_c=10.0 + i, humidity=60.0))
 
-    # hours=72 has stride=3 (indices 0, 3, 6, 9 -> 4 items)
-    history = store.history(hours=72)
+    # max_points=3 with 10 rows gives stride=3 (indices 0, 3, 6, 9 -> 4 items)
+    history = store.history(hours=72, max_points=3)
     assert len(history) == 4
     assert history[0]["temp_c"] == 10.0
     assert history[1]["temp_c"] == 13.0

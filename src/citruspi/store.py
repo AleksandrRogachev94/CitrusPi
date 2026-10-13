@@ -178,23 +178,35 @@ class Store:
         ).fetchone()
         return dict(row) if row else None
 
-    def history(self, hours: int = 24) -> list[dict[str, Any]]:
+    def history(self, hours: int = 24, max_points: int = 1000) -> list[dict[str, Any]]:
         """Return readings from the last *hours* hours using timestamp index range scan.
 
-        Automatically downsamples longer periods to prevent memory bloat on Pi Zero 2W.
+        Automatically downsamples longer periods only if row count exceeds max_points,
+        ensuring smooth rendering on Pi Zero 2W without starving small datasets.
         """
         conn = self._get_conn()
-        stride = max(1, round(hours / 24))
-        if stride == 1:
+        cutoff = f"-{hours}"
+
+        count_row = conn.execute(
+            """
+            SELECT COUNT(*) FROM readings
+            WHERE timestamp >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ? || ' hours');
+            """,
+            (cutoff,),
+        ).fetchone()
+        total_rows = count_row[0] if count_row else 0
+
+        if total_rows <= max_points:
             rows = conn.execute(
                 """
                 SELECT * FROM readings
                 WHERE timestamp >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ? || ' hours')
                 ORDER BY timestamp ASC;
                 """,
-                (f"-{hours}",),
+                (cutoff,),
             ).fetchall()
         else:
+            stride = max(2, total_rows // max_points)
             rows = conn.execute(
                 """
                 WITH numbered AS (
@@ -206,7 +218,7 @@ class Store:
                 WHERE rn % ? = 1
                 ORDER BY timestamp ASC;
                 """,
-                (f"-{hours}", stride),
+                (cutoff, stride),
             ).fetchall()
         return [dict(r) for r in rows]
 
