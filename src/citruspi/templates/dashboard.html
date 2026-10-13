@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block content %}
+
+{% if is_mock %}
+<div class="banner mock-banner">🧪 Mock sensors active — showing simulated data for development</div>
+{% endif %}
+
+<div id="live-readings" hx-get="/fragments/readings" hx-trigger="every 30s" hx-swap="innerHTML">
+    {% include "_readings.html" %}
+</div>
+
+<!-- 24h Chart -->
+<section class="card chart-card">
+    <h2>📈 Last 24 Hours</h2>
+    <canvas id="historyChart" height="100"></canvas>
+</section>
+
+<script>
+async function loadChart() {
+    const res = await fetch('/api/history?hours=24');
+    const data = await res.json();
+    if (!data.length) return;
+
+    const labels = data.map(r => r.timestamp);
+    const ctx = document.getElementById('historyChart').getContext('2d');
+
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                {
+                    label: 'Temp (°F)',
+                    data: data.map(r => r.temp_f),
+                    borderColor: '#f59e0b',
+                    backgroundColor: 'rgba(245,158,11,0.08)',
+                    fill: true,
+                    tension: 0.3,
+                    yAxisID: 'y',
+                    pointRadius: 0,
+                },
+                {
+                    label: 'Humidity (%)',
+                    data: data.map(r => r.humidity),
+                    borderColor: '#3b82f6',
+                    backgroundColor: 'rgba(59,130,246,0.08)',
+                    fill: true,
+                    tension: 0.3,
+                    yAxisID: 'y1',
+                    pointRadius: 0,
+                },
+                {
+                    label: 'Soil Moisture',
+                    data: data.map(r => r.soil_moisture),
+                    borderColor: '#65a30d',
+                    backgroundColor: 'rgba(101,163,13,0.08)',
+                    fill: true,
+                    tension: 0.3,
+                    yAxisID: 'y2',
+                    pointRadius: 0,
+                },
+            ],
+        },
+        options: {
+            responsive: true,
+            interaction: { intersect: false, mode: 'index' },
+            plugins: {
+                legend: { position: 'top', labels: { usePointStyle: true } },
+            },
+            scales: {
+                x: {
+                    type: 'time',
+                    time: { unit: 'hour', displayFormats: { hour: 'ha' } },
+                    grid: { display: false },
+                },
+                y:  { position: 'left',  title: { display: true, text: '°F' },
+                      grid: { color: 'rgba(0,0,0,0.04)' } },
+                y1: { position: 'right', title: { display: true, text: '%RH' },
+                      grid: { display: false } },
+                y2: { display: false },
+            },
+        },
+    });
+}
+loadChart();
+// Refresh chart every 5 min
+setInterval(loadChart, 300000);
+</script>
+
+{% endblock %}

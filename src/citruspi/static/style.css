@@ -1,0 +1,306 @@
+/* ── CitrusPi Dashboard — warm citrus palette ──────────────── */
+
+:root {
+    --bg:       #faf8f2;
+    --surface:  #ffffff;
+    --text:     #292524;
+    --muted:    #78716c;
+    --orange:   #f59e0b;
+    --orange-light: #fef3c7;
+    --blue:     #3b82f6;
+    --blue-light: #dbeafe;
+    --green:    #65a30d;
+    --green-light: #ecfccb;
+    --shadow:   0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+    --radius:   12px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+}
+
+/* ── Top bar ──────────────────────────────────────────────── */
+
+.topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1.5rem;
+    background: var(--surface);
+    border-bottom: 1px solid #e7e5e4;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.logo {
+    font-size: 1.25rem;
+    font-weight: 700;
+    text-decoration: none;
+    color: var(--text);
+}
+
+.nav-links { display: flex; gap: 1rem; }
+.nav-links a {
+    text-decoration: none;
+    color: var(--muted);
+    font-weight: 500;
+    padding: 0.25rem 0.5rem;
+    border-radius: 6px;
+    transition: all 0.15s;
+}
+.nav-links a:hover { color: var(--text); background: var(--orange-light); }
+.nav-links a.active { color: var(--orange); }
+
+/* ── Main layout ──────────────────────────────────────────── */
+
+main {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 1.5rem;
+}
+
+/* ── Cards ────────────────────────────────────────────────── */
+
+.cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.card {
+    background: var(--surface);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 1.25rem;
+}
+
+.sensor-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+}
+
+.card-icon { font-size: 2rem; }
+
+.card-label {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    font-weight: 600;
+}
+
+.card-value {
+    font-size: 2.5rem;
+    font-weight: 700;
+    line-height: 1.1;
+    margin: 0.25rem 0;
+}
+
+.card-value .unit {
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--muted);
+    margin-left: 2px;
+}
+
+.card-sub {
+    font-size: 0.8rem;
+    color: var(--muted);
+}
+
+/* Card accent colours */
+.sensor-card.temp   { border-top: 3px solid var(--orange); }
+.sensor-card.humidity { border-top: 3px solid var(--blue); }
+.sensor-card.soil   { border-top: 3px solid var(--green); }
+
+/* ── Chart card ───────────────────────────────────────────── */
+
+.chart-card { margin-bottom: 1.5rem; }
+.chart-card h2 { margin-bottom: 1rem; font-size: 1.1rem; }
+
+/* ── Photo card ───────────────────────────────────────────── */
+
+.photo-card { margin-bottom: 1.5rem; }
+
+.photo-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+.photo-header h2 { font-size: 1.1rem; }
+
+.photo-actions { display: flex; align-items: center; gap: 0.75rem; }
+
+.daylight-badge {
+    font-size: 0.8rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    font-weight: 500;
+}
+.daylight-badge.on  { background: var(--orange-light); color: #92400e; }
+.daylight-badge.off { background: #e2e8f0; color: #475569; }
+
+button {
+    background: var(--orange);
+    color: white;
+    border: none;
+    padding: 0.4rem 1rem;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: opacity 0.15s;
+}
+button:hover { opacity: 0.85; }
+
+.latest-photo {
+    width: 100%;
+    border-radius: 8px;
+    display: block;
+}
+
+.photo-meta {
+    text-align: center;
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+}
+
+.no-photo {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: var(--muted);
+    font-style: italic;
+}
+
+/* ── Mock banner ──────────────────────────────────────────── */
+
+.banner {
+    text-align: center;
+    padding: 0.5rem;
+    border-radius: var(--radius);
+    margin-bottom: 1rem;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+.mock-banner {
+    background: var(--orange-light);
+    color: #92400e;
+}
+
+/* ── Gallery ──────────────────────────────────────────────── */
+
+.gallery-controls { margin-bottom: 1.5rem; }
+.gallery-controls h1 { margin-bottom: 0.75rem; font-size: 1.4rem; }
+
+.date-picker {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+.date-btn {
+    text-decoration: none;
+    font-size: 0.8rem;
+    padding: 0.3rem 0.7rem;
+    border-radius: 6px;
+    color: var(--muted);
+    background: var(--surface);
+    box-shadow: var(--shadow);
+    transition: all 0.15s;
+}
+.date-btn:hover { color: var(--text); }
+.date-btn.active { background: var(--orange); color: white; }
+
+.gallery-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+    color: var(--muted);
+}
+
+.photo-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 0.75rem;
+}
+.photo-thumb {
+    position: relative;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+}
+.photo-thumb img {
+    width: 100%;
+    aspect-ratio: 16/9;
+    object-fit: cover;
+    display: block;
+    transition: transform 0.2s;
+}
+.photo-thumb:hover img { transform: scale(1.03); }
+.thumb-time {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(0,0,0,0.55);
+    color: white;
+    font-size: 0.75rem;
+    padding: 0.2rem 0.5rem;
+    text-align: center;
+}
+
+/* ── Timelapse overlay ────────────────────────────────────── */
+
+.timelapse-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.92);
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+.timelapse-overlay img {
+    max-width: 90vw;
+    max-height: 75vh;
+    border-radius: 8px;
+}
+.timelapse-counter {
+    color: white;
+    margin-top: 1rem;
+    font-size: 1rem;
+    font-family: monospace;
+}
+.timelapse-close {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    background: rgba(255,255,255,0.15);
+    color: white;
+    padding: 0.5rem 1rem;
+}
+
+.muted { color: var(--muted); }
+
+/* ── Responsive ───────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+    main { padding: 1rem; }
+    .cards { grid-template-columns: 1fr; }
+    .card-value { font-size: 2rem; }
+    .photo-header { flex-direction: column; align-items: flex-start; }
+}

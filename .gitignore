@@ -1,0 +1,26 @@
+# Data & captures (generated at runtime)
+data/
+captures/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config (may contain secrets)
+config.yaml

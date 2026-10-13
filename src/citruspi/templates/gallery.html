@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title_extra %} — Gallery{% endblock %}
+{% block content %}
+
+<section class="gallery-controls">
+    <h1>📷 Photo Gallery</h1>
+    <div class="date-picker">
+        {% for d in dates %}
+            <a href="/gallery?date={{ d }}" class="date-btn {% if d == selected_date %}active{% endif %}">
+                {{ d }}
+            </a>
+        {% endfor %}
+        {% if not dates %}
+            <span class="muted">No captures yet</span>
+        {% endif %}
+    </div>
+</section>
+
+{% if photos %}
+<section class="gallery-toolbar">
+    <span>{{ photos|length }} photos on {{ selected_date }}</span>
+    <button id="timelapse-btn" onclick="startTimelapse()">▶ Play Timelapse</button>
+</section>
+
+<div id="timelapse-overlay" class="timelapse-overlay" style="display:none;">
+    <img id="timelapse-img" src="" alt="Timelapse">
+    <div id="timelapse-counter" class="timelapse-counter"></div>
+    <button class="timelapse-close" onclick="stopTimelapse()">✕ Close</button>
+</div>
+
+<section class="photo-grid">
+    {% for p in photos %}
+        <div class="photo-thumb">
+            <a href="{{ p.url }}" target="_blank">
+                <img src="{{ p.url }}" alt="{{ p.time }}" loading="lazy">
+            </a>
+            <span class="thumb-time">{{ p.time }}</span>
+        </div>
+    {% endfor %}
+</section>
+
+<script>
+const photos = {{ photos | tojson }};
+let tlInterval = null;
+let tlIndex = 0;
+
+function startTimelapse() {
+    if (!photos.length) return;
+    const overlay = document.getElementById('timelapse-overlay');
+    const img = document.getElementById('timelapse-img');
+    const counter = document.getElementById('timelapse-counter');
+    overlay.style.display = 'flex';
+    tlIndex = 0;
+
+    function showFrame() {
+        img.src = photos[tlIndex].url;
+        counter.textContent = `${photos[tlIndex].time}  (${tlIndex + 1}/${photos.length})`;
+        tlIndex = (tlIndex + 1) % photos.length;
+    }
+    showFrame();
+    tlInterval = setInterval(showFrame, 500);
+}
+
+function stopTimelapse() {
+    clearInterval(tlInterval);
+    document.getElementById('timelapse-overlay').style.display = 'none';
+}
+
+// ESC to close
+document.addEventListener('keydown', e => { if (e.key === 'Escape') stopTimelapse(); });
+</script>
+{% endif %}
+
+{% endblock %}

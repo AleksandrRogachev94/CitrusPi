@@ -1,0 +1,72 @@
+<!-- Sensor Cards -->
+<section class="cards">
+    <div class="card sensor-card temp">
+        <div class="card-icon">🌡️</div>
+        <div class="card-body">
+            <div class="card-label">Temperature</div>
+            <div class="card-value">
+                {% if reading %}
+                    {{ "%.1f"|format(reading.temp_f) }}<span class="unit">°F</span>
+                {% else %}
+                    —
+                {% endif %}
+            </div>
+            <div class="card-sub">
+                {% if reading and reading.temp_c %}{{ "%.1f"|format(reading.temp_c) }}°C{% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="card sensor-card humidity">
+        <div class="card-icon">💧</div>
+        <div class="card-body">
+            <div class="card-label">Humidity</div>
+            <div class="card-value">
+                {% if reading %}
+                    {{ "%.1f"|format(reading.humidity) }}<span class="unit">%</span>
+                {% else %}
+                    —
+                {% endif %}
+            </div>
+            <div class="card-sub">Relative humidity</div>
+        </div>
+    </div>
+
+    <div class="card sensor-card soil">
+        <div class="card-icon">🌱</div>
+        <div class="card-body">
+            <div class="card-label">Soil Moisture</div>
+            <div class="card-value">
+                {% if reading %}
+                    {{ reading.soil_moisture }}<span class="unit">raw</span>
+                {% else %}
+                    —
+                {% endif %}
+            </div>
+            <div class="card-sub">Capacitive (↑ = wetter)</div>
+        </div>
+    </div>
+</section>
+
+<!-- Latest Photo -->
+<section class="card photo-card">
+    <div class="photo-header">
+        <h2>📷 Latest Capture</h2>
+        <div class="photo-actions">
+            <span class="daylight-badge {% if is_daylight %}on{% else %}off{% endif %}">
+                {% if is_daylight %}☀️ Lights On{% else %}🌙 Dark Phase{% endif %}
+            </span>
+            <button hx-post="/api/capture" hx-swap="none" onclick="setTimeout(()=>location.reload(),1000)">
+                📸 Snap Now
+            </button>
+        </div>
+    </div>
+    {% if photo %}
+        <a href="{{ photo.url }}" target="_blank">
+            <img src="{{ photo.url }}" alt="Latest capture" class="latest-photo">
+        </a>
+        <div class="photo-meta">{{ photo.date }} at {{ photo.time }}</div>
+    {% else %}
+        <div class="no-photo">No photos yet — waiting for first daylight capture</div>
+    {% endif %}
+</section>
