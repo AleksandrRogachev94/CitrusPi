@@ -10,12 +10,16 @@ def test_mock_sensors_produce_readings() -> None:
     assert hub.is_mock
 
     reading = hub.read()
-    assert "temp_c" in reading
-    assert "temp_f" in reading
-    assert "humidity" in reading
-    assert "soil_moisture" in reading
-    assert 0 < reading["temp_c"] < 40
-    assert 0 < reading["humidity"] <= 100
+    assert reading.temp_c is not None
+    assert reading.temp_f is not None
+    assert reading.humidity is not None
+    assert reading.soil_moisture is not None
+    assert 0 < reading.temp_c < 40
+    assert 0 < reading.humidity <= 100
+
+    d = reading.to_dict()
+    assert "timestamp" in d
+    assert "temp_c" in d
 
 
 def test_mock_readings_vary() -> None:
@@ -24,4 +28,4 @@ def test_mock_readings_vary() -> None:
     r1 = hub.read()
     r2 = hub.read()
     # Random component means they should differ
-    assert r1 != r2
+    assert r1.temp_c != r2.temp_c or r1.humidity != r2.humidity

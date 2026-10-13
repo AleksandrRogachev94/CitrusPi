@@ -13,6 +13,7 @@ import time
 from typing import Any
 
 from citruspi.config import Config
+from citruspi.models import Reading
 
 logger = logging.getLogger(__name__)
 
@@ -216,23 +217,40 @@ class SensorHub:
     def is_mock(self) -> bool:
         return self._mock is not None
 
-    def read(self) -> dict[str, Any]:
-        """Return a dict with temp_c, temp_f, humidity, pressure, soil_moisture."""
+    def read(self) -> Reading:
+        """Read all active sensors and return a validated Reading model."""
         if self._mock:
-            return self._mock.read()
+            raw = self._mock.read()
+            return Reading.create(
+                temp_c=raw.get("temp_c"),
+                humidity=raw.get("humidity"),
+                pressure=raw.get("pressure"),
+                soil_moisture=raw.get("soil_moisture"),
+            )
 
-        result: dict[str, Any] = {}
+        temp_c: float | None = None
+        humidity: float | None = None
+        pressure: float | None = None
+        soil_moisture: int | None = None
+
         if self._bme:
             try:
-                data = self._bme.read()
-                data["temp_f"] = round(data["temp_c"] * 9 / 5 + 32, 2)
-                result.update(data)
+                bme_data = self._bme.read()
+                temp_c = bme_data.get("temp_c")
+                humidity = bme_data.get("humidity")
+                pressure = bme_data.get("pressure")
             except Exception:
                 logger.exception("BME280 read error")
+
         if self._soil:
             try:
-                result["soil_moisture"] = self._soil.read_raw()
+                soil_moisture = self._soil.read_raw()
             except Exception:
                 logger.exception("Soil moisture read error")
 
-        return result
+        return Reading.create(
+            temp_c=temp_c,
+            humidity=humidity,
+            pressure=pressure,
+            soil_moisture=soil_moisture,
+        )

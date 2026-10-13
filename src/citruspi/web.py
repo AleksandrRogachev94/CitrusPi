@@ -108,7 +108,7 @@ def create_app(config: Config, store: Store, sensors: SensorHub) -> FastAPI:
         """Manually poll sensors and store in SQLite."""
         reading = sensors.read()
         store.insert(reading)
-        return reading
+        return reading.to_dict() if hasattr(reading, "to_dict") else reading
 
     # ── Fragments for htmx ────────────────────────────────────────────
 

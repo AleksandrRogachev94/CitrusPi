@@ -1,115 +1,216 @@
-"""SQLite storage for sensor readings.
+"""SQLite storage with WAL mode, index optimization, and versioned migrations.
 
-One lightweight file, fully queryable, zero config.  The DB lives
-inside ``data/citruspi.db`` by default.
+Database management:
+- Automated versioned schema migrations tracked in ``schema_migrations``.
+- WAL journal mode for concurrent thread reads and writes without blocking.
+- Optimized B-tree index on ``timestamp`` for fast 24-hour range queries.
 """
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from citruspi.models import Reading
+
+logger = logging.getLogger(__name__)
+
+# ── Migration Definitions ─────────────────────────────────────────────────────
+
+MIGRATIONS: list[tuple[int, str, list[str]]] = [
+    (
+        1,
+        "initial_readings_table",
+        [
+            """
+            CREATE TABLE IF NOT EXISTS readings (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp     TEXT    NOT NULL,
+                temp_c        REAL,
+                temp_f        REAL,
+                humidity      REAL,
+                pressure      REAL,
+                soil_moisture INTEGER
+            );
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_readings_timestamp
+            ON readings (timestamp);
+            """,
+        ],
+    ),
+    (
+        2,
+        "add_root_temp_and_light_columns",
+        [
+            "ALTER TABLE readings ADD COLUMN root_temp_c REAL;",
+            "ALTER TABLE readings ADD COLUMN root_temp_f REAL;",
+            "ALTER TABLE readings ADD COLUMN light_lux REAL;",
+        ],
+    ),
+]
+
 
 class Store:
-    """Thread-safe SQLite wrapper for telemetry data."""
+    """Thread-safe, WAL-enabled SQLite telemetry store with migrations."""
 
     def __init__(self, data_dir: Path) -> None:
         data_dir.mkdir(parents=True, exist_ok=True)
         self._db_path = data_dir / "citruspi.db"
         self._local = threading.local()
-        self._init_tables()
+        self._run_migrations()
 
-    def _conn(self) -> sqlite3.Connection:
-        """One connection per thread (SQLite requirement)."""
-        if not hasattr(self._local, "conn"):
-            self._local.conn = sqlite3.connect(
-                str(self._db_path), check_same_thread=False
+    def _get_conn(self) -> sqlite3.Connection:
+        """Create or reuse connection for the current thread with WAL pragmas."""
+        if not hasattr(self._local, "conn") or self._local.conn is None:
+            conn = sqlite3.connect(
+                str(self._db_path),
+                check_same_thread=False,
+                timeout=5.0,
             )
-            self._local.conn.row_factory = sqlite3.Row
+            conn.row_factory = sqlite3.Row
+            # Best practice pragmas for concurrent embedded applications:
+            conn.execute("PRAGMA journal_mode = WAL;")
+            conn.execute("PRAGMA synchronous = NORMAL;")
+            conn.execute("PRAGMA busy_timeout = 5000;")
+            self._local.conn = conn
         return self._local.conn
 
-    def _init_tables(self) -> None:
-        self._conn().execute(
-            """
-            CREATE TABLE IF NOT EXISTS readings (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp  TEXT    NOT NULL,
-                temp_c     REAL,
-                temp_f     REAL,
-                humidity   REAL,
-                pressure   REAL,
-                soil_moisture INTEGER
+    def _run_migrations(self) -> None:
+        """Execute any pending schema migrations inside a single transaction."""
+        conn = self._get_conn()
+        with conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS schema_migrations (
+                    version    INTEGER PRIMARY KEY,
+                    name       TEXT NOT NULL,
+                    applied_at TEXT NOT NULL
+                );
+                """
             )
-            """
-        )
-        self._conn().execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_readings_ts
-            ON readings (timestamp)
-            """
-        )
-        self._conn().commit()
 
-    # ── Writes ────────────────────────────────────────────────────────
+            # Get applied versions
+            cursor = conn.execute("SELECT version FROM schema_migrations")
+            applied = {row[0] for row in cursor.fetchall()}
 
-    def insert(self, reading: dict[str, Any]) -> None:
-        """Insert a sensor reading dict."""
-        now = datetime.now(timezone.utc).isoformat()
-        self._conn().execute(
-            """
-            INSERT INTO readings (timestamp, temp_c, temp_f, humidity, pressure, soil_moisture)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                now,
-                reading.get("temp_c"),
-                reading.get("temp_f"),
-                reading.get("humidity"),
-                reading.get("pressure"),
-                reading.get("soil_moisture"),
-            ),
-        )
-        self._conn().commit()
+            for version, name, statements in MIGRATIONS:
+                if version in applied:
+                    continue
 
-    # ── Reads ─────────────────────────────────────────────────────────
+                logger.info("Applying DB migration %d: %s", version, name)
+                for sql in statements:
+                    try:
+                        conn.execute(sql)
+                    except sqlite3.OperationalError as exc:
+                        # Handle duplicate column on alter if previously partially run
+                        if "duplicate column name" in str(exc).lower():
+                            logger.debug("Column already exists, continuing: %s", exc)
+                        else:
+                            raise
+
+                now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                conn.execute(
+                    "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?);",
+                    (version, name, now_utc),
+                )
+                logger.info("✓ Migration %d (%s) applied successfully", version, name)
+
+    # ── Write Operations ──────────────────────────────────────────────────────
+
+    def insert(self, reading: Reading | dict[str, Any]) -> None:
+        """Insert a sensor reading."""
+        if isinstance(reading, dict):
+            # Accept dict for backward compatibility
+            ts = reading.get("timestamp") or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            temp_c = reading.get("temp_c")
+            temp_f = reading.get("temp_f") or (round(temp_c * 9 / 5 + 32, 2) if temp_c is not None else None)
+            humidity = reading.get("humidity")
+            pressure = reading.get("pressure")
+            soil = reading.get("soil_moisture")
+            root_c = reading.get("root_temp_c")
+            root_f = reading.get("root_temp_f")
+            light = reading.get("light_lux")
+        else:
+            ts = reading.timestamp
+            temp_c = reading.temp_c
+            temp_f = reading.temp_f
+            humidity = reading.humidity
+            pressure = reading.pressure
+            soil = reading.soil_moisture
+            root_c = reading.root_temp_c
+            root_f = reading.root_temp_f
+            light = reading.light_lux
+
+        conn = self._get_conn()
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO readings (
+                    timestamp, temp_c, temp_f, humidity, pressure, soil_moisture,
+                    root_temp_c, root_temp_f, light_lux
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                (ts, temp_c, temp_f, humidity, pressure, soil, root_c, root_f, light),
+            )
+
+    # ── Read Operations ───────────────────────────────────────────────────────
 
     def latest(self) -> dict[str, Any] | None:
-        """Most recent reading."""
-        row = self._conn().execute(
-            "SELECT * FROM readings ORDER BY id DESC LIMIT 1"
+        """Return the most recent reading."""
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT * FROM readings ORDER BY id DESC LIMIT 1;"
         ).fetchone()
         return dict(row) if row else None
 
     def history(self, hours: int = 24) -> list[dict[str, Any]]:
-        """All readings from the last *hours* hours."""
-        rows = self._conn().execute(
+        """Return readings from the last *hours* hours using timestamp index range scan."""
+        conn = self._get_conn()
+        # Use ISO formatted UTC start time for direct B-tree index seek
+        rows = conn.execute(
             """
             SELECT * FROM readings
-            WHERE timestamp >= datetime('now', ? || ' hours')
-            ORDER BY timestamp ASC
+            WHERE timestamp >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ? || ' hours')
+            ORDER BY timestamp ASC;
             """,
             (f"-{hours}",),
         ).fetchall()
         return [dict(r) for r in rows]
 
-    def daily_summary(self, date: str) -> dict[str, Any]:
-        """Min/max/avg for a given YYYY-MM-DD date."""
-        row = self._conn().execute(
+    def daily_summary(self, date_str: str) -> dict[str, Any]:
+        """Min/max/avg for a given YYYY-MM-DD date using index range bounds."""
+        conn = self._get_conn()
+        # Range bounds use index directly instead of full-table-scan date(timestamp)
+        start_ts = f"{date_str}T00:00:00Z"
+        end_ts = f"{date_str}T23:59:59Z"
+
+        row = conn.execute(
             """
             SELECT
-                MIN(temp_c) as temp_min,
-                MAX(temp_c) as temp_max,
-                AVG(temp_c) as temp_avg,
-                MIN(humidity) as hum_min,
-                MAX(humidity) as hum_max,
-                AVG(humidity) as hum_avg,
-                COUNT(*) as sample_count
+                MIN(temp_c) AS temp_min,
+                MAX(temp_c) AS temp_max,
+                ROUND(AVG(temp_c), 2) AS temp_avg,
+                MIN(humidity) AS hum_min,
+                MAX(humidity) AS hum_max,
+                ROUND(AVG(humidity), 2) AS hum_avg,
+                MIN(soil_moisture) AS soil_min,
+                MAX(soil_moisture) AS soil_max,
+                COUNT(*) AS sample_count
             FROM readings
-            WHERE date(timestamp) = ?
+            WHERE timestamp >= ? AND timestamp <= ?;
             """,
-            (date,),
+            (start_ts, end_ts),
         ).fetchone()
         return dict(row) if row else {}
+
+    def get_applied_migrations(self) -> list[dict[str, Any]]:
+        """Return list of applied migrations for inspection."""
+        conn = self._get_conn()
+        rows = conn.execute("SELECT * FROM schema_migrations ORDER BY version ASC;").fetchall()
+        return [dict(r) for r in rows]
