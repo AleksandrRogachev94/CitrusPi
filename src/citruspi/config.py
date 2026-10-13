@@ -15,19 +15,23 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 @dataclass
 class Config:
     # ── Sensor polling ────────────────────────────────────────────────
-    poll_interval_sec: int = 300  # 5 min
+    poll_interval_sec: int = 60  # 1 min default for high resolution
     bme280_address: int = 0x76
     soil_moisture_address: int = 0x36
-    mock_sensors: bool = False  # auto-detected if smbus2 unavailable
+    mock_sensors: bool = False  # auto-detected if hardware unavailable
 
-    # ── Camera ────────────────────────────────────────────────────────
+    # ── Camera & Photoperiod ──────────────────────────────────────────
     camera_device: str = "/dev/video0"
     camera_device_index: int = 0
-    capture_interval_sec: int = 1800  # 30 min
     capture_width: int = 1280
     capture_height: int = 720
-    lights_on_hour: int = 7
-    lights_off_hour: int = 17
+
+    # Photoperiod & daily timelapse photo schedule
+    # Citrus grow tents often run lights overnight (e.g. 20:00 to 06:00)
+    # Daily photo is snapped once per day during lights-on for the multi-month timelapse.
+    daily_capture_hour: int = 22     # 22:00 (10 PM)
+    daily_capture_minute: int = 0
+    stream_fps: int = 5              # 5 fps live stream preserves Pi Zero 2W CPU
 
     # ── Storage ───────────────────────────────────────────────────────
     data_dir: Path = field(default_factory=lambda: _PROJECT_ROOT / "data")

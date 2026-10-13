@@ -1,12 +1,9 @@
-"""Entry point — ``python -m citruspi`` starts everything."""
+"""Entry point — ``python -m citruspi`` starts background monitoring & web dashboard."""
 
 from __future__ import annotations
 
 import argparse
-import asyncio
 import logging
-import signal
-import sys
 import threading
 import time
 
@@ -42,45 +39,59 @@ def main() -> None:
     sensors = SensorHub(config)
     app = create_app(config, store, sensors)
 
-    # ── Background polling ────────────────────────────────────────────
-
     stop_event = threading.Event()
 
+    # ── Background Sensor Polling (every minute by default) ───────────
     def sensor_loop() -> None:
-        """Poll sensors at the configured interval."""
         logger.info(
-            "📊 Sensor polling started (every %ds, mock=%s)",
+            "📊 Sensor polling active (every %ds, mock=%s)",
             config.poll_interval_sec,
             sensors.is_mock,
         )
+        # Take initial reading immediately on startup
+        try:
+            initial = sensors.read()
+            store.insert(initial)
+            logger.info("📊 Startup reading: %s", initial)
+        except Exception:
+            logger.exception("Initial sensor reading failed")
+
         while not stop_event.is_set():
+            stop_event.wait(config.poll_interval_sec)
+            if stop_event.is_set():
+                break
             try:
                 reading = sensors.read()
                 store.insert(reading)
-                logger.info("📊 %s", reading)
+                logger.debug("📊 Poll: %s", reading)
             except Exception:
                 logger.exception("Sensor poll error")
-            stop_event.wait(config.poll_interval_sec)
 
-    def capture_loop() -> None:
-        """Capture photos at the configured interval."""
-        logger.info("📸 Capture loop started (every %ds)", config.capture_interval_sec)
+    # ── Background Daily Photo Check ──────────────────────────────────
+    def daily_photo_loop() -> None:
+        logger.info(
+            "📸 Daily timelapse photo scheduler active (scheduled for %02d:%02d)",
+            config.daily_capture_hour,
+            config.daily_capture_minute,
+        )
         while not stop_event.is_set():
             try:
-                camera.capture_frame(config)
+                camera.check_and_take_daily_capture(config)
             except Exception:
-                logger.exception("Capture error")
-            stop_event.wait(config.capture_interval_sec)
+                logger.exception("Daily photo check error")
+            # Check every 30 seconds
+            stop_event.wait(30)
 
     sensor_thread = threading.Thread(target=sensor_loop, daemon=True, name="sensors")
-    capture_thread = threading.Thread(target=capture_loop, daemon=True, name="capture")
+    photo_thread = threading.Thread(target=daily_photo_loop, daemon=True, name="daily_photo")
     sensor_thread.start()
-    capture_thread.start()
+    photo_thread.start()
 
-    # ── Web server ────────────────────────────────────────────────────
-
+    # ── Web Server ────────────────────────────────────────────────────
     logger.info("")
-    logger.info("🍊 CitrusPi starting at http://%s:%d", config.host, config.port)
+    logger.info("🍊 CitrusPi running at http://%s:%d", config.host, config.port)
+    logger.info("   Daily photo time: %02d:%02d", config.daily_capture_hour, config.daily_capture_minute)
+    logger.info("   Sensor cadence:   every %ds", config.poll_interval_sec)
     logger.info("")
 
     import uvicorn  # type: ignore[import-untyped]

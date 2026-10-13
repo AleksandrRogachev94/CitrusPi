@@ -1,40 +1,34 @@
 {% extends "base.html" %}
-{% block title_extra %} — Gallery{% endblock %}
+{% block title_extra %} — Timelapse Gallery{% endblock %}
 {% block content %}
 
 <section class="gallery-controls">
-    <h1>📷 Photo Gallery</h1>
-    <div class="date-picker">
-        {% for d in dates %}
-            <a href="/gallery?date={{ d }}" class="date-btn {% if d == selected_date %}active{% endif %}">
-                {{ d }}
-            </a>
-        {% endfor %}
-        {% if not dates %}
-            <span class="muted">No captures yet</span>
-        {% endif %}
-    </div>
+    <h1>📷 Daily Timelapse Gallery</h1>
+    <p class="muted">One high-res frame captured daily during photoperiod to observe leaf health and leaf drop over time.</p>
 </section>
 
 {% if photos %}
 <section class="gallery-toolbar">
-    <span>{{ photos|length }} photos on {{ selected_date }}</span>
-    <button id="timelapse-btn" onclick="startTimelapse()">▶ Play Timelapse</button>
+    <span><strong>{{ photos|length }}</strong> daily frames recorded</span>
+    <button id="timelapse-btn" onclick="startTimelapse()">▶ Play Full Timelapse</button>
 </section>
 
 <div id="timelapse-overlay" class="timelapse-overlay" style="display:none;">
     <img id="timelapse-img" src="" alt="Timelapse">
     <div id="timelapse-counter" class="timelapse-counter"></div>
-    <button class="timelapse-close" onclick="stopTimelapse()">✕ Close</button>
+    <div class="timelapse-actions">
+        <button class="btn-secondary" onclick="speedTimelapse()">Speed: <span id="speed-label">2 fps</span></button>
+        <button class="timelapse-close" onclick="stopTimelapse()">✕ Close</button>
+    </div>
 </div>
 
 <section class="photo-grid">
     {% for p in photos %}
         <div class="photo-thumb">
             <a href="{{ p.url }}" target="_blank">
-                <img src="{{ p.url }}" alt="{{ p.time }}" loading="lazy">
+                <img src="{{ p.url }}" alt="{{ p.date }}" loading="lazy">
             </a>
-            <span class="thumb-time">{{ p.time }}</span>
+            <span class="thumb-time">{{ p.date }}</span>
         </div>
     {% endfor %}
 </section>
@@ -43,6 +37,8 @@
 const photos = {{ photos | tojson }};
 let tlInterval = null;
 let tlIndex = 0;
+let speeds = [500, 250, 1000]; // 2fps, 4fps, 1fps
+let speedIdx = 0;
 
 function startTimelapse() {
     if (!photos.length) return;
@@ -54,11 +50,22 @@ function startTimelapse() {
 
     function showFrame() {
         img.src = photos[tlIndex].url;
-        counter.textContent = `${photos[tlIndex].time}  (${tlIndex + 1}/${photos.length})`;
+        counter.textContent = `${photos[tlIndex].date}  (${tlIndex + 1}/${photos.length})`;
         tlIndex = (tlIndex + 1) % photos.length;
     }
     showFrame();
-    tlInterval = setInterval(showFrame, 500);
+    clearInterval(tlInterval);
+    tlInterval = setInterval(showFrame, speeds[speedIdx]);
+}
+
+function speedTimelapse() {
+    speedIdx = (speedIdx + 1) % speeds.length;
+    const labels = ["2 fps", "4 fps", "1 fps"];
+    document.getElementById('speed-label').textContent = labels[speedIdx];
+    if (tlInterval) {
+        clearInterval(tlInterval);
+        tlInterval = setInterval(showFrame, speeds[speedIdx]);
+    }
 }
 
 function stopTimelapse() {
@@ -66,9 +73,13 @@ function stopTimelapse() {
     document.getElementById('timelapse-overlay').style.display = 'none';
 }
 
-// ESC to close
 document.addEventListener('keydown', e => { if (e.key === 'Escape') stopTimelapse(); });
 </script>
+{% else %}
+<div class="card" style="text-align:center; padding: 3rem;">
+    <p class="muted">No timelapse photos recorded yet.</p>
+    <p style="margin-top:0.5rem;"><a href="/">Return to Dashboard</a> to snap your first photo.</p>
+</div>
 {% endif %}
 
 {% endblock %}

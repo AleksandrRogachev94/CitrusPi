@@ -1,15 +1,14 @@
-"""FastAPI web application — dashboard, API, and photo serving."""
+"""FastAPI web application — dashboard, live camera stream, API, and timelapse gallery."""
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -54,24 +53,32 @@ def create_app(config: Config, store: Store, sensors: SensorHub) -> FastAPI:
                 "reading": latest,
                 "photo": photo,
                 "is_mock": sensors.is_mock,
-                "is_daylight": camera.is_daylight(config),
+                "config": config,
             },
         )
 
     @app.get("/gallery", response_class=HTMLResponse)
-    async def gallery(request: Request, date: str | None = None) -> HTMLResponse:
-        dates = camera.list_dates(config)
-        if not date and dates:
-            date = dates[-1]
-        photos = camera.list_photos(config, date) if date else []
+    async def gallery(request: Request) -> HTMLResponse:
+        photos = camera.list_photos(config)
         return templates.TemplateResponse(
             "gallery.html",
             {
                 "request": request,
-                "dates": dates,
-                "selected_date": date,
                 "photos": photos,
             },
+        )
+
+    # ── Live Camera Stream ────────────────────────────────────────────
+
+    @app.get("/stream")
+    def video_stream() -> StreamingResponse:
+        """Stream MJPEG video on-demand at ~5 fps.
+
+        Only active while the browser has the stream open.
+        """
+        return StreamingResponse(
+            camera.generate_mjpeg_stream(config),
+            media_type="multipart/x-mixed-replace; boundary=frame",
         )
 
     # ── JSON API ──────────────────────────────────────────────────────
@@ -85,21 +92,20 @@ def create_app(config: Config, store: Store, sensors: SensorHub) -> FastAPI:
         return store.history(hours=hours)
 
     @app.get("/api/photos")
-    async def api_photos(date: str | None = None) -> list[dict[str, str]]:
-        if not date:
-            dates = camera.list_dates(config)
-            date = dates[-1] if dates else ""
-        return camera.list_photos(config, date) if date else []
+    async def api_photos() -> list[dict[str, str]]:
+        return camera.list_photos(config)
 
     @app.post("/api/capture")
-    async def api_capture() -> dict[str, str]:
-        path = camera.capture_frame(config, force=True)
+    async def api_capture() -> dict[str, Any]:
+        """Manually trigger a photo capture."""
+        path = camera.capture_frame(config)
         if path:
-            return {"status": "ok", "path": str(path)}
+            return {"status": "ok", "path": str(path), "url": f"/captures/{path.name}"}
         return {"status": "error", "message": "capture failed"}
 
     @app.post("/api/poll")
     async def api_poll() -> dict[str, Any]:
+        """Manually poll sensors and store in SQLite."""
         reading = sensors.read()
         store.insert(reading)
         return reading
@@ -116,7 +122,7 @@ def create_app(config: Config, store: Store, sensors: SensorHub) -> FastAPI:
                 "request": request,
                 "reading": latest,
                 "photo": photo,
-                "is_daylight": camera.is_daylight(config),
+                "config": config,
             },
         )
 

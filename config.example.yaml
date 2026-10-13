@@ -1,8 +1,9 @@
 # CitrusPi configuration
-# Copy to config.yaml and edit as needed.
+# Copy to config.yaml to override defaults.
 
 # Sensor polling interval (seconds)
-poll_interval_sec: 300
+# 60 seconds gives great resolution and uses <0.1MB/day in SQLite.
+poll_interval_sec: 60
 
 # BME280 I2C address (0x76 or 0x77)
 bme280_address: 0x76
@@ -10,19 +11,22 @@ bme280_address: 0x76
 # Capacitive soil moisture I2C address
 soil_moisture_address: 0x36
 
-# Force mock sensors (set true for dev without hardware)
+# Force mock sensors (auto-fallback if I2C bus not present)
 mock_sensors: false
 
-# Camera
+# Camera settings
 camera_device: "/dev/video0"
 camera_device_index: 0
-capture_interval_sec: 1800
 capture_width: 1280
 capture_height: 720
 
-# LED photoperiod (captures only during these hours)
-lights_on_hour: 7
-lights_off_hour: 17
+# Daily timelapse photo schedule
+# Snaps 1 photo per day during the night photoperiod (e.g. 22:00 = 10 PM)
+daily_capture_hour: 22
+daily_capture_minute: 0
+
+# On-demand live stream framerate (keep low to save Pi Zero 2W CPU)
+stream_fps: 5
 
 # Web server
 host: "0.0.0.0"

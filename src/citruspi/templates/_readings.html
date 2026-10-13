@@ -48,25 +48,60 @@
     </div>
 </section>
 
-<!-- Latest Photo -->
+<!-- Camera Section: Daily Photo & On-Demand Live Stream -->
 <section class="card photo-card">
     <div class="photo-header">
-        <h2>📷 Latest Capture</h2>
+        <div>
+            <h2>📷 Tent Camera</h2>
+            <div class="photo-sub">Daily photo scheduled at {{ "%02d:%02d"|format(config.daily_capture_hour, config.daily_capture_minute) }}</div>
+        </div>
         <div class="photo-actions">
-            <span class="daylight-badge {% if is_daylight %}on{% else %}off{% endif %}">
-                {% if is_daylight %}☀️ Lights On{% else %}🌙 Dark Phase{% endif %}
-            </span>
-            <button hx-post="/api/capture" hx-swap="none" onclick="setTimeout(()=>location.reload(),1000)">
+            <button type="button" id="toggle-stream-btn" class="btn-secondary" onclick="toggleStream()">
+                ▶ Live Stream
+            </button>
+            <button type="button" hx-post="/api/capture" hx-swap="none" onclick="setTimeout(()=>location.reload(), 800)">
                 📸 Snap Now
             </button>
         </div>
     </div>
-    {% if photo %}
-        <a href="{{ photo.url }}" target="_blank">
-            <img src="{{ photo.url }}" alt="Latest capture" class="latest-photo">
-        </a>
-        <div class="photo-meta">{{ photo.date }} at {{ photo.time }}</div>
-    {% else %}
-        <div class="no-photo">No photos yet — waiting for first daylight capture</div>
-    {% endif %}
+
+    <!-- Live Stream Container (toggled on demand to save Pi CPU) -->
+    <div id="live-stream-box" style="display:none; margin-bottom: 1rem;">
+        <div class="stream-banner">🔴 Live Camera Feed (~5 fps)</div>
+        <img id="live-stream-img" src="" alt="Live feed" class="latest-photo">
+    </div>
+
+    <!-- Latest Captured Photo -->
+    <div id="latest-photo-box">
+        {% if photo %}
+            <a href="{{ photo.url }}" target="_blank">
+                <img src="{{ photo.url }}" alt="Latest capture" class="latest-photo">
+            </a>
+            <div class="photo-meta">Latest timelapse frame: <strong>{{ photo.date }}</strong></div>
+        {% else %}
+            <div class="no-photo">No daily photo captured yet. Click "📸 Snap Now" or wait for scheduled time.</div>
+        {% endif %}
+    </div>
 </section>
+
+<script>
+function toggleStream() {
+    const box = document.getElementById('live-stream-box');
+    const img = document.getElementById('live-stream-img');
+    const btn = document.getElementById('toggle-stream-btn');
+
+    if (box.style.display === 'none') {
+        // Start streaming
+        img.src = '/stream';
+        box.style.display = 'block';
+        btn.textContent = '⏹ Stop Stream';
+        btn.classList.add('btn-active');
+    } else {
+        // Stop streaming (cuts connection to free Pi resources)
+        img.src = '';
+        box.style.display = 'none';
+        btn.textContent = '▶ Live Stream';
+        btn.classList.remove('btn-active');
+    }
+}
+</script>

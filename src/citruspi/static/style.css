@@ -296,6 +296,33 @@ button:hover { opacity: 0.85; }
 
 .muted { color: var(--muted); }
 
+.photo-sub {
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-top: 0.15rem;
+}
+
+.btn-secondary {
+    background: #e7e5e4;
+    color: var(--text);
+}
+.btn-secondary:hover { background: #d6d3d1; }
+.btn-active {
+    background: #ef4444 !important;
+    color: white !important;
+}
+
+.stream-banner {
+    background: #fee2e2;
+    color: #991b1b;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.25rem 0.6rem;
+    border-radius: 6px;
+    margin-bottom: 0.5rem;
+    display: inline-block;
+}
+
 /* ── Responsive ───────────────────────────────────────────── */
 
 @media (max-width: 640px) {
