@@ -197,15 +197,21 @@ async function loadCharts() {
                 plugins: {
                     legend: {
                         position: 'top',
-                        labels: { color: theme.textColor, usePointStyle: true, boxWidth: 6, font: { size: 11 } },
+                        labels: {
+                            color: theme.textColor,
+                            usePointStyle: true,
+                            boxWidth: 8,
+                            padding: 16,
+                            font: { size: 11, weight: '500' }
+                        },
                     },
                 },
                 scales: {
                     x: {
                         type: 'time',
-                        time: { unit: 'hour', displayFormats: { hour: 'ha' } },
+                        time: { displayFormats: { hour: 'ha', minute: 'h:mm a' } },
                         grid: { display: false },
-                        ticks: { color: theme.textColor, maxRotation: 0, font: { size: 10 } },
+                        ticks: { color: theme.textColor, maxTicksLimit: 7, maxRotation: 0, font: { size: 10 } },
                     },
                     yTemp: {
                         position: 'left',
@@ -266,9 +272,9 @@ async function loadCharts() {
                 scales: {
                     x: {
                         type: 'time',
-                        time: { unit: 'hour', displayFormats: { hour: 'ha' } },
+                        time: { displayFormats: { hour: 'ha', minute: 'h:mm a' } },
                         grid: { display: false },
-                        ticks: { color: theme.textColor, maxRotation: 0, font: { size: 10 } },
+                        ticks: { color: theme.textColor, maxTicksLimit: 7, maxRotation: 0, font: { size: 10 } },
                     },
                     y: {
                         position: 'left',
