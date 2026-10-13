@@ -309,13 +309,57 @@ body {
 .card-header-compact {
     display: flex;
     justify-content: space-between;
-    align-items: baseline;
+    align-items: center;
     margin-bottom: 0.5rem;
+    gap: 0.5rem;
+    flex-wrap: wrap;
 }
 
 .card-header-compact h2 {
     font-size: 0.95rem;
     font-weight: 600;
+}
+
+.range-selector {
+    display: inline-flex;
+    background: var(--surface-sub);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 2px;
+    gap: 2px;
+}
+
+.range-btn {
+    background: transparent;
+    color: var(--text-muted);
+    border: none;
+    border-radius: 6px;
+    padding: 0.2rem 0.55rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.range-btn:hover {
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.range-btn.active {
+    background: var(--orange) !important;
+    color: #ffffff !important;
+    box-shadow: 0 1px 4px rgba(245, 158, 11, 0.35);
+}
+
+.range-badge {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    background: var(--surface-sub);
+    border: 1px solid var(--border);
+    padding: 0.15rem 0.5rem;
+    border-radius: 6px;
 }
 
 .photo-sub {

@@ -179,17 +179,35 @@ class Store:
         return dict(row) if row else None
 
     def history(self, hours: int = 24) -> list[dict[str, Any]]:
-        """Return readings from the last *hours* hours using timestamp index range scan."""
+        """Return readings from the last *hours* hours using timestamp index range scan.
+
+        Automatically downsamples longer periods to prevent memory bloat on Pi Zero 2W.
+        """
         conn = self._get_conn()
-        # Use ISO formatted UTC start time for direct B-tree index seek
-        rows = conn.execute(
-            """
-            SELECT * FROM readings
-            WHERE timestamp >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ? || ' hours')
-            ORDER BY timestamp ASC;
-            """,
-            (f"-{hours}",),
-        ).fetchall()
+        stride = max(1, round(hours / 24))
+        if stride == 1:
+            rows = conn.execute(
+                """
+                SELECT * FROM readings
+                WHERE timestamp >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ? || ' hours')
+                ORDER BY timestamp ASC;
+                """,
+                (f"-{hours}",),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                WITH numbered AS (
+                    SELECT *, ROW_NUMBER() OVER (ORDER BY timestamp ASC) AS rn
+                    FROM readings
+                    WHERE timestamp >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ? || ' hours')
+                )
+                SELECT * FROM numbered
+                WHERE rn % ? = 1
+                ORDER BY timestamp ASC;
+                """,
+                (f"-{hours}", stride),
+            ).fetchall()
         return [dict(r) for r in rows]
 
     def daily_summary(self, date_str: str) -> dict[str, Any]:

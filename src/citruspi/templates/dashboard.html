@@ -52,13 +52,19 @@
         </div>
     </section>
 
-    <!-- Column 2: 24h Telemetry (Clean Split Charts) -->
+    <!-- Column 2: Telemetry Charts (Synchronized Dual Visualizations) -->
     <div class="charts-column">
         <!-- Climate & VPD Chart -->
         <section class="card chart-card">
             <div class="card-header-compact">
-                <h2>📈 Canopy Microclimate (24h)</h2>
-                <span class="muted small">Temp · Humidity · VPD</span>
+                <h2>📈 Canopy Microclimate</h2>
+                <div class="range-selector" role="group" aria-label="Chart time range">
+                    <button type="button" class="range-btn active" data-hours="24" onclick="setChartRange(24)">24h</button>
+                    <button type="button" class="range-btn" data-hours="72" onclick="setChartRange(72)">3d</button>
+                    <button type="button" class="range-btn" data-hours="168" onclick="setChartRange(168)">7d</button>
+                    <button type="button" class="range-btn" data-hours="336" onclick="setChartRange(336)">14d</button>
+                    <button type="button" class="range-btn" data-hours="720" onclick="setChartRange(720)">30d</button>
+                </div>
             </div>
             <div class="chart-wrapper">
                 <canvas id="climateChart"></canvas>
@@ -68,8 +74,8 @@
         <!-- Substrate Moisture Chart -->
         <section class="card chart-card">
             <div class="card-header-compact">
-                <h2>🌱 Substrate Dry-Down (24h)</h2>
-                <span class="muted small">Capacitive Raw</span>
+                <h2>🌱 Substrate Dry-Down</h2>
+                <span id="soil-range-badge" class="range-badge">24h History</span>
             </div>
             <div class="chart-wrapper-compact">
                 <canvas id="soilChart"></canvas>
@@ -126,8 +132,10 @@ function toggleStream() {
 }
 
 // ── Chart.js Dual Visualizations (Anchored Scales, Zero Muddy Fills) ─
+// ── Chart.js Dual Visualizations (Anchored Scales, Multi-day Ranges) ─
 let climateChartInstance = null;
 let soilChartInstance = null;
+let currentRangeHours = parseInt(localStorage.getItem('citruspi-chart-range') || '24', 10);
 
 function getThemeColors() {
     const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
@@ -139,13 +147,42 @@ function getThemeColors() {
     };
 }
 
-async function loadCharts() {
-    const res = await fetch('/api/history?hours=24');
+function updateRangeUI(hours) {
+    document.querySelectorAll('.range-btn').forEach(btn => {
+        const btnHours = parseInt(btn.getAttribute('data-hours'), 10);
+        btn.classList.toggle('active', btnHours === hours);
+    });
+    const badge = document.getElementById('soil-range-badge');
+    if (badge) {
+        const labels = { 24: '24h', 72: '3d', 168: '7d', 336: '14d', 720: '30d' };
+        badge.textContent = `${labels[hours] || hours + 'h'} History`;
+    }
+}
+
+function setChartRange(hours) {
+    currentRangeHours = hours;
+    localStorage.setItem('citruspi-chart-range', hours);
+    updateRangeUI(hours);
+    loadCharts(hours);
+}
+
+async function loadCharts(hours = currentRangeHours) {
+    const res = await fetch(`/api/history?hours=${hours}`);
     const data = await res.json();
     if (!data.length) return;
 
     const labels = data.map(r => r.timestamp);
     const theme = getThemeColors();
+
+    const timeConfig = {
+        displayFormats: {
+            minute: 'h:mm a',
+            hour: 'ha',
+            day: 'MMM d',
+            week: 'MMM d',
+        },
+        tooltipFormat: 'MMM d, h:mm a',
+    };
 
     // 1. Canopy Climate Chart
     const cCanvas = document.getElementById('climateChart');
@@ -162,9 +199,10 @@ async function loadCharts() {
                         borderColor: '#f59e0b',
                         backgroundColor: 'rgba(245,158,11,0.08)',
                         fill: true,
-                        tension: 0.3,
+                        tension: 0.25,
                         yAxisID: 'yTemp',
                         pointRadius: 0,
+                        pointHoverRadius: 4,
                         borderWidth: 2,
                     },
                     {
@@ -172,9 +210,10 @@ async function loadCharts() {
                         data: data.map(r => r.humidity),
                         borderColor: '#38bdf8',
                         fill: false,
-                        tension: 0.3,
+                        tension: 0.25,
                         yAxisID: 'yHum',
                         pointRadius: 0,
+                        pointHoverRadius: 4,
                         borderWidth: 2,
                     },
                     {
@@ -183,9 +222,10 @@ async function loadCharts() {
                         borderColor: '#ef4444',
                         borderDash: [3, 3],
                         fill: false,
-                        tension: 0.3,
+                        tension: 0.25,
                         yAxisID: 'yVpd',
                         pointRadius: 0,
+                        pointHoverRadius: 4,
                         borderWidth: 1.5,
                     },
                 ],
@@ -209,7 +249,7 @@ async function loadCharts() {
                 scales: {
                     x: {
                         type: 'time',
-                        time: { displayFormats: { hour: 'ha', minute: 'h:mm a' } },
+                        time: timeConfig,
                         grid: { display: false },
                         ticks: { color: theme.textColor, maxTicksLimit: 7, maxRotation: 0, font: { size: 10 } },
                     },
@@ -256,8 +296,9 @@ async function loadCharts() {
                         borderColor: '#84cc16',
                         backgroundColor: 'rgba(132, 204, 22, 0.08)',
                         fill: true,
-                        tension: 0.3,
+                        tension: 0.25,
                         pointRadius: 0,
+                        pointHoverRadius: 4,
                         borderWidth: 2,
                     },
                 ],
@@ -272,7 +313,7 @@ async function loadCharts() {
                 scales: {
                     x: {
                         type: 'time',
-                        time: { displayFormats: { hour: 'ha', minute: 'h:mm a' } },
+                        time: timeConfig,
                         grid: { display: false },
                         ticks: { color: theme.textColor, maxTicksLimit: 7, maxRotation: 0, font: { size: 10 } },
                     },
@@ -291,11 +332,13 @@ async function loadCharts() {
 }
 
 function updateChartThemes() {
-    loadCharts();
+    loadCharts(currentRangeHours);
 }
 
-loadCharts();
-setInterval(loadCharts, 300000); // 5-minute refresh
+// Initialize range selection & load charts
+updateRangeUI(currentRangeHours);
+loadCharts(currentRangeHours);
+setInterval(() => loadCharts(currentRangeHours), 300000); // 5-minute refresh
 </script>
 
 {% endblock %}

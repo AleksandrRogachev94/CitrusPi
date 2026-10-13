@@ -88,7 +88,8 @@ def create_app(config: Config, store: Store, sensors: SensorHub) -> FastAPI:
 
     @app.get("/api/history")
     def api_history(hours: int = 24) -> list[dict[str, Any]]:
-        return store.history(hours=hours)
+        safe_hours = max(1, min(hours, 720))
+        return store.history(hours=safe_hours)
 
     @app.get("/api/photos")
     def api_photos() -> list[dict[str, str]]:

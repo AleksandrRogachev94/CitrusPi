@@ -51,6 +51,18 @@ def test_history(tmp_path: Path) -> None:
     assert history[4]["temp_c"] == 14.0
 
 
+def test_history_downsampled(tmp_path: Path) -> None:
+    store = Store(tmp_path)
+    for i in range(10):
+        store.insert(Reading.create(temp_c=10.0 + i, humidity=60.0))
+
+    # hours=72 has stride=3 (indices 0, 3, 6, 9 -> 4 items)
+    history = store.history(hours=72)
+    assert len(history) == 4
+    assert history[0]["temp_c"] == 10.0
+    assert history[1]["temp_c"] == 13.0
+
+
 def test_daily_summary(tmp_path: Path) -> None:
     store = Store(tmp_path)
     date_str = "2026-10-13"
