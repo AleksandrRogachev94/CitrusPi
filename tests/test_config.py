@@ -14,7 +14,7 @@ def test_default_config() -> None:
     assert cfg.poll_interval_sec == 60
     assert cfg.daily_capture_hour == 22
     assert cfg.daily_capture_minute == 0
-    assert cfg.port == 8000
+    assert cfg.port == 80
 
 
 def test_yaml_override(tmp_path: Path) -> None:

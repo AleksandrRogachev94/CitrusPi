@@ -28,7 +28,7 @@ daily_capture_minute: 0
 # On-demand live stream framerate (keep low to save Pi Zero 2W CPU)
 stream_fps: 5
 
-# Web server
+# Web server (port 80 allows opening http://citruspi.local directly)
 host: "0.0.0.0"
-port: 8000
+port: 80
 log_level: "info"

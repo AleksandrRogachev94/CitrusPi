@@ -1,9 +1,14 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>🍊 CitrusPi{% block title_extra %}{% endblock %}</title>
+    <!-- Instant theme sync before render to eliminate flash -->
+    <script>
+        const savedTheme = localStorage.getItem('citruspi-theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+    </script>
     <link rel="stylesheet" href="/static/style.css">
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
@@ -11,16 +16,42 @@
     {% block head %}{% endblock %}
 </head>
 <body>
-    <nav class="topbar">
-        <a href="/" class="logo">🍊 CitrusPi</a>
-        <div class="nav-links">
-            <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">Dashboard</a>
-            <a href="/gallery" class="{% if '/gallery' in request.url.path %}active{% endif %}">Gallery</a>
-            <a href="/docs" target="_blank">API</a>
+    <header class="topbar">
+        <div class="topbar-inner">
+            <a href="/" class="logo">
+                <span class="logo-icon">🍊</span>
+                <span class="logo-text">CitrusPi</span>
+            </a>
+            <div class="topbar-right">
+                <nav class="nav-links">
+                    <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">Dashboard</a>
+                    <a href="/gallery" class="{% if '/gallery' in request.url.path %}active{% endif %}">Gallery</a>
+                    <a href="/docs" target="_blank">API</a>
+                </nav>
+                <button type="button" id="theme-toggle-btn" class="theme-toggle" onclick="toggleTheme()" title="Toggle Dark/Light Mode">
+                    🌙
+                </button>
+            </div>
         </div>
-    </nav>
-    <main>
+    </header>
+    <main class="main-container">
         {% block content %}{% endblock %}
     </main>
+    <script>
+        function updateThemeButton() {
+            const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+            const btn = document.getElementById('theme-toggle-btn');
+            if (btn) btn.textContent = isLight ? '☀️' : '🌙';
+        }
+        function toggleTheme() {
+            const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+            const next = isLight ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem('citruspi-theme', next);
+            updateThemeButton();
+            if (typeof updateChartThemes === 'function') updateChartThemes();
+        }
+        updateThemeButton();
+    </script>
 </body>
 </html>

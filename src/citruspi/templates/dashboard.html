@@ -5,163 +5,291 @@
 <div class="banner mock-banner">🧪 Mock sensors active — showing simulated telemetry for development</div>
 {% endif %}
 
-<!-- Sensor Cards Container (Polled every 30s by htmx, never interrupts camera stream) -->
+<!-- Sensor Cards Container (Polled every 30s by htmx) -->
 <div id="live-readings" hx-get="/fragments/readings" hx-trigger="every 30s" hx-swap="innerHTML">
     {% include "_readings.html" %}
 </div>
 
-<!-- Camera Section: Daily Photo & On-Demand Live Stream -->
-<section class="card photo-card">
-    <div class="photo-header">
-        <div>
-            <h2>📷 Tent Camera</h2>
-            <div class="photo-sub">Daily photo scheduled at {{ "%02d:%02d"|format(config.daily_capture_hour, config.daily_capture_minute) }}</div>
+<!-- Main 2-Column Desktop Grid (Zero-scroll, side-by-side) -->
+<div class="dashboard-grid">
+
+    <!-- Column 1: Tent Camera (Permanent 16:9 Stage) -->
+    <section class="card photo-card">
+        <div class="card-header">
+            <div>
+                <h2>📷 Tent Camera</h2>
+                <div class="photo-sub">Daily photo scheduled at {{ "%02d:%02d"|format(config.daily_capture_hour, config.daily_capture_minute) }}</div>
+            </div>
+            <div class="header-actions">
+                <button type="button" id="toggle-stream-btn" class="btn-secondary" onclick="toggleStream()">
+                    ▶ Live Stream
+                </button>
+                <button type="button" hx-post="/api/capture" hx-swap="none" hx-on::after-request="location.reload()">
+                    📸 Snap Now
+                </button>
+            </div>
         </div>
-        <div class="photo-actions">
-            <button type="button" id="toggle-stream-btn" class="btn-secondary" onclick="toggleStream()">
-                ▶ Live Stream
-            </button>
-            <button type="button" hx-post="/api/capture" hx-swap="none" hx-on::after-request="location.reload()">
-                📸 Snap Now
-            </button>
+
+        <!-- Permanent 16:9 Stage — Zero Layout Shift -->
+        <div class="camera-stage">
+            <div id="stream-live-pill" class="stream-live-pill" style="display:none;">
+                <span class="live-dot-red"></span>
+                <span>LIVE · 5 FPS</span>
+            </div>
+
+            {% if photo %}
+                <img id="camera-display" src="{{ photo.url }}" alt="Tent Camera" class="camera-img">
+                <div id="camera-caption" class="camera-caption">Latest timelapse frame: <strong>{{ photo.date }}</strong></div>
+            {% else %}
+                <img id="camera-display" src="" alt="Tent Camera" class="camera-img" style="display:none;">
+                <div id="camera-empty" class="camera-empty-state">
+                    <span class="empty-icon">📷</span>
+                    <span>No daily photo captured yet.</span>
+                    <span class="muted small">Click "📸 Snap Now" or "▶ Live Stream"</span>
+                </div>
+                <div id="camera-caption" class="camera-caption" style="display:none;"></div>
+            {% endif %}
         </div>
+    </section>
+
+    <!-- Column 2: 24h Telemetry (Clean Split Charts) -->
+    <div class="charts-column">
+        <!-- Climate & VPD Chart -->
+        <section class="card chart-card">
+            <div class="card-header-compact">
+                <h2>📈 Canopy Microclimate (24h)</h2>
+                <span class="muted small">Temp · Humidity · VPD</span>
+            </div>
+            <div class="chart-wrapper">
+                <canvas id="climateChart"></canvas>
+            </div>
+        </section>
+
+        <!-- Substrate Moisture Chart -->
+        <section class="card chart-card">
+            <div class="card-header-compact">
+                <h2>🌱 Substrate Dry-Down (24h)</h2>
+                <span class="muted small">Capacitive Raw</span>
+            </div>
+            <div class="chart-wrapper-compact">
+                <canvas id="soilChart"></canvas>
+            </div>
+        </section>
     </div>
 
-    <!-- Live Stream Container (toggled on demand to save Pi CPU) -->
-    <div id="live-stream-box" style="display:none; margin-bottom: 1rem;">
-        <div class="stream-banner">🔴 Live Camera Feed (~5 fps)</div>
-        <img id="live-stream-img" src="" alt="Live feed" class="latest-photo">
-    </div>
-
-    <!-- Latest Captured Photo -->
-    <div id="latest-photo-box">
-        {% if photo %}
-            <a href="{{ photo.url }}" target="_blank">
-                <img src="{{ photo.url }}" alt="Latest capture" class="latest-photo">
-            </a>
-            <div class="photo-meta">Latest timelapse frame: <strong>{{ photo.date }}</strong></div>
-        {% else %}
-            <div class="no-photo">No daily photo captured yet. Click "📸 Snap Now" or wait for scheduled time.</div>
-        {% endif %}
-    </div>
-</section>
-
-<!-- 24h Chart -->
-<section class="card chart-card">
-    <h2>📈 Last 24 Hours</h2>
-    <canvas id="historyChart" height="100"></canvas>
-</section>
+</div>
 
 <script>
+// ── Camera Stage Controller ──────────────────────────────────────────
+const defaultPhotoUrl = "{{ photo.url if photo else '' }}";
+const defaultCaptionDate = "{{ photo.date if photo else '' }}";
+
 function toggleStream() {
-    const box = document.getElementById('live-stream-box');
-    const img = document.getElementById('live-stream-img');
+    const img = document.getElementById('camera-display');
+    const emptyState = document.getElementById('camera-empty');
+    const livePill = document.getElementById('stream-live-pill');
+    const caption = document.getElementById('camera-caption');
     const btn = document.getElementById('toggle-stream-btn');
 
-    if (box.style.display === 'none') {
-        img.src = '/stream';
-        box.style.display = 'block';
-        btn.textContent = '⏹ Stop Stream';
-        btn.classList.add('btn-active');
-    } else {
-        img.src = '';
-        box.style.display = 'none';
+    if (btn.classList.contains('btn-active')) {
+        // Stop stream -> restore still photo
+        livePill.style.display = 'none';
         btn.textContent = '▶ Live Stream';
         btn.classList.remove('btn-active');
+        if (defaultPhotoUrl) {
+            img.src = defaultPhotoUrl;
+            img.style.display = 'block';
+            if (emptyState) emptyState.style.display = 'none';
+            if (caption) {
+                caption.style.display = 'block';
+                caption.innerHTML = `Latest timelapse frame: <strong>${defaultCaptionDate}</strong>`;
+            }
+        } else {
+            img.src = '';
+            img.style.display = 'none';
+            if (emptyState) emptyState.style.display = 'flex';
+            if (caption) caption.style.display = 'none';
+        }
+    } else {
+        // Start live stream
+        img.src = '/stream';
+        img.style.display = 'block';
+        if (emptyState) emptyState.style.display = 'none';
+        if (caption) {
+            caption.style.display = 'block';
+            caption.innerHTML = `<strong>Live Tent Feed</strong> (On-demand ~5 FPS)`;
+        }
+        livePill.style.display = 'flex';
+        btn.textContent = '⏹ Stop Stream';
+        btn.classList.add('btn-active');
     }
 }
 
-let historyChartInstance = null;
+// ── Chart.js Dual Visualizations (Anchored Scales, Zero Muddy Fills) ─
+let climateChartInstance = null;
+let soilChartInstance = null;
 
-async function loadChart() {
+function getThemeColors() {
+    const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+    return {
+        textColor: isDark ? '#94a3b8' : '#64748b',
+        gridColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
+        tooltipBg: isDark ? '#1e293b' : '#ffffff',
+        tooltipText: isDark ? '#f8fafc' : '#0f172a',
+    };
+}
+
+async function loadCharts() {
     const res = await fetch('/api/history?hours=24');
     const data = await res.json();
     if (!data.length) return;
 
     const labels = data.map(r => r.timestamp);
-    const canvas = document.getElementById('historyChart');
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
+    const theme = getThemeColors();
 
-    // Destroy existing instance to prevent "Canvas is already in use" Chart.js v4 error
-    if (historyChartInstance) {
-        historyChartInstance.destroy();
+    // 1. Canopy Climate Chart
+    const cCanvas = document.getElementById('climateChart');
+    if (cCanvas) {
+        if (climateChartInstance) climateChartInstance.destroy();
+        climateChartInstance = new Chart(cCanvas.getContext('2d'), {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [
+                    {
+                        label: 'Temp (°F)',
+                        data: data.map(r => r.temp_f),
+                        borderColor: '#f59e0b',
+                        backgroundColor: 'rgba(245,158,11,0.08)',
+                        fill: true,
+                        tension: 0.3,
+                        yAxisID: 'yTemp',
+                        pointRadius: 0,
+                        borderWidth: 2,
+                    },
+                    {
+                        label: 'Humidity (%)',
+                        data: data.map(r => r.humidity),
+                        borderColor: '#38bdf8',
+                        fill: false,
+                        tension: 0.3,
+                        yAxisID: 'yHum',
+                        pointRadius: 0,
+                        borderWidth: 2,
+                    },
+                    {
+                        label: 'VPD (kPa)',
+                        data: data.map(r => r.vpd_kpa),
+                        borderColor: '#ef4444',
+                        borderDash: [3, 3],
+                        fill: false,
+                        tension: 0.3,
+                        yAxisID: 'yVpd',
+                        pointRadius: 0,
+                        borderWidth: 1.5,
+                    },
+                ],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { intersect: false, mode: 'index' },
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: { color: theme.textColor, usePointStyle: true, boxWidth: 6, font: { size: 11 } },
+                    },
+                },
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: { unit: 'hour', displayFormats: { hour: 'ha' } },
+                        grid: { display: false },
+                        ticks: { color: theme.textColor, maxRotation: 0, font: { size: 10 } },
+                    },
+                    yTemp: {
+                        position: 'left',
+                        title: { display: true, text: '°F', color: theme.textColor, font: { size: 10 } },
+                        suggestedMin: 45,
+                        suggestedMax: 75,
+                        grid: { color: theme.gridColor },
+                        ticks: { color: theme.textColor, font: { size: 10 } },
+                    },
+                    yHum: {
+                        position: 'right',
+                        title: { display: true, text: '%RH', color: theme.textColor, font: { size: 10 } },
+                        suggestedMin: 30,
+                        suggestedMax: 90,
+                        grid: { display: false },
+                        ticks: { color: theme.textColor, font: { size: 10 } },
+                    },
+                    yVpd: {
+                        position: 'right',
+                        suggestedMin: 0.2,
+                        suggestedMax: 1.8,
+                        grid: { display: false },
+                        display: false, // share right space cleanly
+                    },
+                },
+            },
+        });
     }
 
-    historyChartInstance = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels,
-            datasets: [
-                {
-                    label: 'Temp (°F)',
-                    data: data.map(r => r.temp_f),
-                    borderColor: '#f59e0b',
-                    backgroundColor: 'rgba(245,158,11,0.08)',
-                    fill: true,
-                    tension: 0.3,
-                    yAxisID: 'y',
-                    pointRadius: 0,
-                },
-                {
-                    label: 'Humidity (%)',
-                    data: data.map(r => r.humidity),
-                    borderColor: '#3b82f6',
-                    backgroundColor: 'rgba(59,130,246,0.08)',
-                    fill: true,
-                    tension: 0.3,
-                    yAxisID: 'y1',
-                    pointRadius: 0,
-                },
-                {
-                    label: 'VPD (kPa)',
-                    data: data.map(r => r.vpd_kpa),
-                    borderColor: '#ef4444',
-                    borderDash: [4, 4],
-                    fill: false,
-                    tension: 0.3,
-                    yAxisID: 'y2',
-                    pointRadius: 0,
-                },
-                {
-                    label: 'Soil Moisture',
-                    data: data.map(r => r.soil_moisture),
-                    borderColor: '#65a30d',
-                    backgroundColor: 'rgba(101,163,13,0.08)',
-                    fill: true,
-                    tension: 0.3,
-                    yAxisID: 'y3',
-                    pointRadius: 0,
-                },
-            ],
-        },
-        options: {
-            responsive: true,
-            interaction: { intersect: false, mode: 'index' },
-            plugins: {
-                legend: { position: 'top', labels: { usePointStyle: true } },
+    // 2. Substrate Moisture Chart
+    const sCanvas = document.getElementById('soilChart');
+    if (sCanvas) {
+        if (soilChartInstance) soilChartInstance.destroy();
+        soilChartInstance = new Chart(sCanvas.getContext('2d'), {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [
+                    {
+                        label: 'Soil Moisture (raw)',
+                        data: data.map(r => r.soil_moisture),
+                        borderColor: '#84cc16',
+                        backgroundColor: 'rgba(132, 204, 22, 0.08)',
+                        fill: true,
+                        tension: 0.3,
+                        pointRadius: 0,
+                        borderWidth: 2,
+                    },
+                ],
             },
-            scales: {
-                x: {
-                    type: 'time',
-                    time: { unit: 'hour', displayFormats: { hour: 'ha' } },
-                    grid: { display: false },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { intersect: false, mode: 'index' },
+                plugins: {
+                    legend: { display: false },
                 },
-                y:  { position: 'left',  title: { display: true, text: '°F' },
-                      grid: { color: 'rgba(0,0,0,0.04)' } },
-                y1: { position: 'right', title: { display: true, text: '%RH' },
-                      grid: { display: false } },
-                y2: { position: 'right', title: { display: true, text: 'VPD (kPa)' },
-                      grid: { display: false } },
-                y3: { display: false },
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: { unit: 'hour', displayFormats: { hour: 'ha' } },
+                        grid: { display: false },
+                        ticks: { color: theme.textColor, maxRotation: 0, font: { size: 10 } },
+                    },
+                    y: {
+                        position: 'left',
+                        title: { display: true, text: 'Raw', color: theme.textColor, font: { size: 10 } },
+                        suggestedMin: 300,
+                        suggestedMax: 900,
+                        grid: { color: theme.gridColor },
+                        ticks: { color: theme.textColor, font: { size: 10 } },
+                    },
+                },
             },
-        },
-    });
+        });
+    }
 }
 
-loadChart();
-// Refresh chart every 5 min
-setInterval(loadChart, 300000);
+function updateChartThemes() {
+    loadCharts();
+}
+
+loadCharts();
+setInterval(loadCharts, 300000); // 5-minute refresh
 </script>
 
 {% endblock %}

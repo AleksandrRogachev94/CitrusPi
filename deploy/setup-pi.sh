@@ -55,7 +55,7 @@ sudo systemctl restart citruspi
 
 echo ""
 echo "🍊 CitrusPi setup complete!"
-echo "Dashboard is running at: http://$(hostname -I | awk '{print $1}'):8000"
+echo "Dashboard is running at: http://$(hostname -I | awk '{print $1}') (or http://citruspi.local)"
 echo ""
 echo "Helpful verification commands:"
 echo "  - Check service status:   sudo systemctl status citruspi"

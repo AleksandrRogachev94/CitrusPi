@@ -12,6 +12,9 @@ Restart=on-failure
 RestartSec=30
 StandardOutput=journal
 StandardError=journal
+# Allow binding to privileged ports (< 1024) such as port 80 as non-root user
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 
 [Install]
 WantedBy=multi-user.target

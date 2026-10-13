@@ -20,7 +20,7 @@ cd ~/citruspi && ./deploy/setup-pi.sh
 ```
 *Note: The script automatically enables I2C, installs dependencies, and configures `log2ram` to protect your microSD card from write wear.*
 
-Done. Open **http://citruspi.local:8000** in your browser.
+Done. Open **http://citruspi.local** in your browser (no port needed).
 
 ---
 
@@ -51,7 +51,7 @@ poll_interval_sec: 60     # Sensor interval (seconds)
 daily_capture_hour: 22    # 10 PM daily timelapse photo
 daily_capture_minute: 0
 stream_fps: 5             # Live preview framerate
-port: 8000
+port: 80                  # Port 80 allows direct http://citruspi.local
 ```
 
 ---

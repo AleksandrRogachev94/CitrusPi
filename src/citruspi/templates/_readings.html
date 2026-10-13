@@ -1,10 +1,20 @@
 <!-- Sensor Cards Fragment (polled by htmx every 30s) -->
+<div class="readings-meta-bar">
+    <div class="meta-status">
+        <span class="live-dot"></span>
+        <span class="meta-title">Telemetry Feed</span>
+    </div>
+    {% if reading and reading.timestamp %}
+        <span class="meta-time">Updated {{ reading.timestamp[11:19] }} UTC</span>
+    {% endif %}
+</div>
+
 <section class="cards">
     <!-- Temperature Card -->
     <div class="card sensor-card temp">
         <div class="card-icon">🌡️</div>
         <div class="card-body">
-            <div class="card-label">Temperature</div>
+            <div class="card-label">Canopy Temperature</div>
             <div class="card-value">
                 {% if reading and reading.temp_f is not none %}
                     {{ "%.1f"|format(reading.temp_f) }}<span class="unit">°F</span>
@@ -37,7 +47,7 @@
             </div>
             <div class="card-sub">
                 {% if reading and reading.vpd_kpa is not none %}
-                    <span class="vpd-badge {% if reading.vpd_kpa > 1.4 %}vpd-high{% elif reading.vpd_kpa < 0.6 %}vpd-low{% else %}vpd-opt{% endif %}">
+                    <span class="vpd-badge {% if reading.vpd_kpa > 1.4 %}vpd-high{% elif reading.vpd_kpa < 0.6 %}vpd-low{% else %}vpd-opt{% endif %}" title="Vapor Pressure Deficit (Optimal: 0.6 - 1.4 kPa)">
                         VPD: {{ "%.2f"|format(reading.vpd_kpa) }} kPa
                     </span>
                 {% else %}
@@ -51,7 +61,7 @@
     <div class="card sensor-card soil">
         <div class="card-icon">🌱</div>
         <div class="card-body">
-            <div class="card-label">Soil Moisture</div>
+            <div class="card-label">Substrate Moisture</div>
             <div class="card-value">
                 {% if reading and reading.soil_moisture is not none %}
                     {{ reading.soil_moisture }}<span class="unit">raw</span>
@@ -59,7 +69,7 @@
                     <span class="muted">—</span>
                 {% endif %}
             </div>
-            <div class="card-sub">Capacitive (↑ = wetter)</div>
+            <div class="card-sub">Capacitive (higher = wetter)</div>
         </div>
     </div>
 </section>
