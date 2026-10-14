@@ -24,3 +24,7 @@ Thumbs.db
 
 # Config (may contain secrets)
 config.yaml
+
+# Downloaded vendor assets
+src/citruspi/static/vendor/
+

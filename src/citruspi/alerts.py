@@ -1,8 +1,9 @@
-"""Alerting and heartbeat module for CitrusPi — synchronous, simple, no threads/locks."""
+"""Alerting and heartbeat module for CitrusPi — thread-safe rule evaluation & ntfy dispatch."""
 
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
@@ -41,6 +42,7 @@ class AlertManager:
         self.config = config
         self.clock = clock
         self._notify = notify or self.send_ntfy
+        self._lock = threading.Lock()
         self.rules: dict[str, AlertRule] = {
             "canopy_offline": AlertRule(
                 name="canopy_offline",
@@ -181,66 +183,67 @@ class AlertManager:
 
     def evaluate(self, reading: Any) -> None:
         """Evaluate a reading against all rules."""
-        temp_f = getattr(reading, "temp_f", None)
-        if temp_f is not None:
-            try:
-                temp_f = float(temp_f)
-            except (ValueError, TypeError):
-                temp_f = None
+        with self._lock:
+            temp_f = getattr(reading, "temp_f", None)
+            if temp_f is not None:
+                try:
+                    temp_f = float(temp_f)
+                except (ValueError, TypeError):
+                    temp_f = None
 
-        if temp_f is None:
-            # If temp_f is None, run only canopy_offline. Skip rules 2-4 entirely.
+            if temp_f is None:
+                # If temp_f is None, run only canopy_offline. Skip rules 2-4 entirely.
+                self._evaluate_rule(
+                    self.rules["canopy_offline"],
+                    is_breached=True,
+                    is_recovered=False,
+                    breach_msg="Canopy temperature sensor is offline (None reading).",
+                    recovery_msg="",
+                )
+                return
+
+            # temp_f is not None: evaluate canopy_offline recovery
             self._evaluate_rule(
                 self.rules["canopy_offline"],
-                is_breached=True,
-                is_recovered=False,
-                breach_msg="Canopy temperature sensor is offline (None reading).",
-                recovery_msg="",
+                is_breached=False,
+                is_recovered=True,
+                breach_msg="",
+                recovery_msg=f"Canopy sensor back online ({temp_f:.1f}°F).",
             )
-            return
 
-        # temp_f is not None: evaluate canopy_offline recovery
-        self._evaluate_rule(
-            self.rules["canopy_offline"],
-            is_breached=False,
-            is_recovered=True,
-            breach_msg="",
-            recovery_msg=f"Canopy sensor back online ({temp_f:.1f}°F).",
-        )
+            # 2. temp_crit_low: breached at <= temp_min_crit_f; recovered at >= temp_min_crit_f + 2.0
+            self._evaluate_rule(
+                self.rules["temp_crit_low"],
+                is_breached=(temp_f <= self.config.temp_min_crit_f),
+                is_recovered=(temp_f >= self.config.temp_min_crit_f + 2.0),
+                breach_msg=(
+                    f"Canopy temperature dropped to {temp_f:.1f}°F "
+                    f"(critical minimum: {self.config.temp_min_crit_f:.1f}°F)."
+                ),
+                recovery_msg=f"Canopy temperature recovered to {temp_f:.1f}°F.",
+            )
 
-        # 2. temp_crit_low: breached at <= temp_min_crit_f; recovered at >= temp_min_crit_f + 2.0
-        self._evaluate_rule(
-            self.rules["temp_crit_low"],
-            is_breached=(temp_f <= self.config.temp_min_crit_f),
-            is_recovered=(temp_f >= self.config.temp_min_crit_f + 2.0),
-            breach_msg=(
-                f"Canopy temperature dropped to {temp_f:.1f}°F "
-                f"(critical minimum: {self.config.temp_min_crit_f:.1f}°F)."
-            ),
-            recovery_msg=f"Canopy temperature recovered to {temp_f:.1f}°F.",
-        )
+            # 3. temp_crit_high: breached at >= temp_max_crit_f; recovered at <= temp_max_crit_f - 2.0
+            self._evaluate_rule(
+                self.rules["temp_crit_high"],
+                is_breached=(temp_f >= self.config.temp_max_crit_f),
+                is_recovered=(temp_f <= self.config.temp_max_crit_f - 2.0),
+                breach_msg=(
+                    f"Canopy temperature rose to {temp_f:.1f}°F "
+                    f"(critical maximum: {self.config.temp_max_crit_f:.1f}°F)."
+                ),
+                recovery_msg=f"Canopy temperature recovered to {temp_f:.1f}°F.",
+            )
 
-        # 3. temp_crit_high: breached at >= temp_max_crit_f; recovered at <= temp_max_crit_f - 2.0
-        self._evaluate_rule(
-            self.rules["temp_crit_high"],
-            is_breached=(temp_f >= self.config.temp_max_crit_f),
-            is_recovered=(temp_f <= self.config.temp_max_crit_f - 2.0),
-            breach_msg=(
-                f"Canopy temperature rose to {temp_f:.1f}°F "
-                f"(critical maximum: {self.config.temp_max_crit_f:.1f}°F)."
-            ),
-            recovery_msg=f"Canopy temperature recovered to {temp_f:.1f}°F.",
-        )
-
-        # 4. temp_warn_low: breached when temp_min_crit_f < temp_f <= temp_min_warn_f;
-        #    recovered at >= temp_min_warn_f + 2.0
-        self._evaluate_rule(
-            self.rules["temp_warn_low"],
-            is_breached=(self.config.temp_min_crit_f < temp_f <= self.config.temp_min_warn_f),
-            is_recovered=(temp_f >= self.config.temp_min_warn_f + 2.0),
-            breach_msg=(
-                f"Canopy temperature dropped to {temp_f:.1f}°F "
-                f"(warning threshold: {self.config.temp_min_warn_f:.1f}°F)."
-            ),
-            recovery_msg=f"Canopy temperature recovered to {temp_f:.1f}°F.",
-        )
+            # 4. temp_warn_low: breached when temp_min_crit_f < temp_f <= temp_min_warn_f;
+            #    recovered at >= temp_min_warn_f + 2.0
+            self._evaluate_rule(
+                self.rules["temp_warn_low"],
+                is_breached=(self.config.temp_min_crit_f < temp_f <= self.config.temp_min_warn_f),
+                is_recovered=(temp_f >= self.config.temp_min_warn_f + 2.0),
+                breach_msg=(
+                    f"Canopy temperature dropped to {temp_f:.1f}°F "
+                    f"(warning threshold: {self.config.temp_min_warn_f:.1f}°F)."
+                ),
+                recovery_msg=f"Canopy temperature recovered to {temp_f:.1f}°F.",
+            )

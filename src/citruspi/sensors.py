@@ -100,6 +100,9 @@ class _BME280:
             v = u16(b, i)
             return v - 65536 if v >= 32768 else v
 
+        def s12(v: int) -> int:
+            return v - 4096 if v >= 2048 else v
+
         c = self._cal
         c["T1"] = u16(tp, 0)
         c["T2"] = s16(tp, 2)
@@ -110,8 +113,8 @@ class _BME280:
         c["H1"] = h1[0]
         c["H2"] = s16(h2, 0)
         c["H3"] = h2[2]
-        c["H4"] = (h2[3] << 4) | (h2[4] & 0x0F)
-        c["H5"] = (h2[5] << 4) | ((h2[4] >> 4) & 0x0F)
+        c["H4"] = s12((h2[3] << 4) | (h2[4] & 0x0F))
+        c["H5"] = s12((h2[5] << 4) | ((h2[4] >> 4) & 0x0F))
         c["H6"] = h2[6] if h2[6] < 128 else h2[6] - 256
 
     def _configure(self) -> None:

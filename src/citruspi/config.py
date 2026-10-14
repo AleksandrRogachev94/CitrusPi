@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+import re
 from typing import Any
 
 import yaml
@@ -64,6 +65,15 @@ class Config:
             self.data_dir = Path(self.data_dir)
         if isinstance(self.captures_dir, str):
             self.captures_dir = Path(self.captures_dir)
+
+        # Synchronize camera_device and camera_device_index to prevent split-brain
+        if self.camera_device_index != 0 and self.camera_device == "/dev/video0":
+            self.camera_device = f"/dev/video{self.camera_device_index}"
+        elif self.camera_device != "/dev/video0":
+            match = re.search(r"video(\d+)$", str(self.camera_device))
+            if match:
+                self.camera_device_index = int(match.group(1))
+
 
 
 def load_config(path: str | Path | None = None) -> Config:

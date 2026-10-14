@@ -379,6 +379,51 @@ function updateChartThemes() {
 updateRangeUI(currentRangeHours);
 loadCharts(currentRangeHours);
 setInterval(() => loadCharts(currentRangeHours), 300000); // 5-minute refresh
+
+// ── Telemetry Staleness & Offline Watcher ──────────────────────────
+function checkTelemetryStaleness() {
+    const timeEl = document.getElementById('telemetry-time');
+    const dotEl = document.getElementById('telemetry-live-dot');
+    const labelEl = document.getElementById('telemetry-status-label');
+    if (!timeEl || !timeEl.dataset.timestamp) return;
+
+    const dt = new Date(timeEl.dataset.timestamp);
+    if (isNaN(dt.getTime())) return;
+
+    timeEl.textContent = 'Updated ' + dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const ageSec = (Date.now() - dt.getTime()) / 1000;
+    if (ageSec > 180) {
+        if (dotEl) dotEl.className = 'stale-dot';
+        if (labelEl) labelEl.textContent = 'Telemetry (Stale)';
+        timeEl.classList.add('stale-text');
+    } else {
+        if (dotEl) dotEl.className = 'live-dot';
+        if (labelEl) labelEl.textContent = 'Telemetry Feed';
+        timeEl.classList.remove('stale-text');
+    }
+}
+
+window.checkTelemetryStaleness = checkTelemetryStaleness;
+checkTelemetryStaleness();
+setInterval(checkTelemetryStaleness, 15000);
+
+document.body.addEventListener('htmx:sendError', function(evt) {
+    if (evt.detail && evt.detail.target && evt.detail.target.id === 'live-readings') {
+        const dotEl = document.getElementById('telemetry-live-dot');
+        const labelEl = document.getElementById('telemetry-status-label');
+        if (dotEl) dotEl.className = 'stale-dot';
+        if (labelEl) labelEl.textContent = 'Telemetry (Offline)';
+    }
+});
+
+document.body.addEventListener('htmx:responseError', function(evt) {
+    if (evt.detail && evt.detail.target && evt.detail.target.id === 'live-readings') {
+        const dotEl = document.getElementById('telemetry-live-dot');
+        const labelEl = document.getElementById('telemetry-status-label');
+        if (dotEl) dotEl.className = 'stale-dot';
+        if (labelEl) labelEl.textContent = 'Telemetry (Offline)';
+    }
+});
 </script>
 
 {% endblock %}

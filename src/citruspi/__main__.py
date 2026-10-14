@@ -111,6 +111,20 @@ def main() -> None:
 
     import socket
 
+    if config.port < 1024:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                s.bind((config.host, config.port))
+        except PermissionError:
+            logger.warning(
+                "Port %d requires root/CAP_NET_BIND_SERVICE — falling back to port 8000 for local dev",
+                config.port,
+            )
+            config.port = 8000
+        except OSError:
+            pass
+
     from citruspi.runner import run_daily_loop, run_sensor_loop
     from citruspi.sensors import SensorHub
     from citruspi.store import Store
@@ -148,23 +162,6 @@ def main() -> None:
     )
     sensor_thread.start()
     photo_thread.start()
-
-    # ── Web Server ────────────────────────────────────────────────────
-    import socket
-
-    if config.port < 1024:
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                s.bind((config.host, config.port))
-        except PermissionError:
-            logger.warning(
-                "Port %d requires root/CAP_NET_BIND_SERVICE — falling back to port 8000 for local dev",
-                config.port,
-            )
-            config.port = 8000
-        except OSError:
-            pass
 
     logger.info("")
     logger.info("🍊 CitrusPi running at http://%s:%d", config.host, config.port)

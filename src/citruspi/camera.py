@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 import threading
 import time
 from datetime import datetime
@@ -67,12 +68,31 @@ _last_capture_failure_time: float = 0.0
 _FAILURE_BACKOFF_SEC: float = 600.0  # 10 minutes
 
 
+def _open_video_capture(config: Config) -> Any:
+    """Open OpenCV VideoCapture handle using direct V4L2 on Linux."""
+    import cv2  # type: ignore[import-untyped]
+
+    backend = cv2.CAP_V4L2 if sys.platform.startswith("linux") else cv2.CAP_ANY
+    target: Any
+    if sys.platform.startswith("linux") and config.camera_device:
+        target = config.camera_device
+    else:
+        target = config.camera_device_index
+
+    try:
+        cap = cv2.VideoCapture(target, backend)
+    except Exception:
+        cap = cv2.VideoCapture(config.camera_device_index)
+    return cap
+
+
+
 def capture_frame(config: Config, filename: str) -> Path | None:
     """Capture a single JPEG from the USB camera to captures/{filename}.
 
     Returns the saved path or None.
     """
-    global _active_cap
+    global _active_cap, _active_stream_count
 
     config.captures_dir.mkdir(parents=True, exist_ok=True)
     target_path = config.captures_dir / filename
@@ -103,12 +123,15 @@ def capture_frame(config: Config, filename: str) -> Path | None:
                 _active_cap.set(cv2.CAP_PROP_FRAME_WIDTH, min(640, config.capture_width))
                 _active_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, min(480, config.capture_height))
                 if not ret or frame is None:
-                    logger.warning("Could not read frame from active stream handle")
+                    logger.warning("Could not read frame from active stream handle; releasing handle")
+                    _active_cap.release()
+                    _active_cap = None
+                    _active_stream_count = 0
                     frame = None
 
             # Case B: Stream is not open — open device directly with auto-exposure warmup
             if frame is None:
-                cap = cv2.VideoCapture(config.camera_device_index)
+                cap = _open_video_capture(config)
                 if not cap.isOpened():
                     logger.warning("Cannot open camera device %s", config.camera_device)
                     # Do NOT poison target_path with placeholder on real hardware failure;
@@ -213,7 +236,7 @@ def generate_mjpeg_stream(config: Config) -> Generator[bytes, None, None]:
 
     with _CAMERA_LOCK:
         if _active_cap is None or not _active_cap.isOpened():
-            _active_cap = cv2.VideoCapture(config.camera_device_index)
+            _active_cap = _open_video_capture(config)
             if _active_cap.isOpened():
                 _active_cap.set(cv2.CAP_PROP_FRAME_WIDTH, min(640, config.capture_width))
                 _active_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, min(480, config.capture_height))
@@ -235,6 +258,7 @@ def generate_mjpeg_stream(config: Config) -> Generator[bytes, None, None]:
             time.sleep(1.0)
 
     logger.info("▶ Live video stream started (%d FPS, active viewers=%d)", fps, _active_stream_count)
+    consecutive_failures = 0
     try:
         while True:
             with _CAMERA_LOCK:
@@ -243,12 +267,25 @@ def generate_mjpeg_stream(config: Config) -> Generator[bytes, None, None]:
                 ret, frame = _active_cap.read()
 
             if not ret or frame is None:
+                consecutive_failures += 1
+                if consecutive_failures >= 15:
+                    logger.warning(
+                        "Too many consecutive camera read failures (%d), terminating stream",
+                        consecutive_failures,
+                    )
+                    break
                 time.sleep(0.1)
                 continue
+
+            consecutive_failures = 0
 
             # Encode as JPEG
             ret, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
             if not ret:
+                consecutive_failures += 1
+                if consecutive_failures >= 15:
+                    logger.warning("Repeated JPEG encode failure, terminating stream")
+                    break
                 time.sleep(0.1)
                 continue
 

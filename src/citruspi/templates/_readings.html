@@ -12,18 +12,22 @@
 </div>
 <script>
 (function() {
-    const timeEl = document.getElementById('telemetry-time');
-    const dotEl = document.getElementById('telemetry-live-dot');
-    const labelEl = document.getElementById('telemetry-status-label');
-    if (timeEl && timeEl.dataset.timestamp) {
-        const dt = new Date(timeEl.dataset.timestamp);
-        if (!isNaN(dt.getTime())) {
-            timeEl.textContent = 'Updated ' + dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            const ageSec = (Date.now() - dt.getTime()) / 1000;
-            if (ageSec > 180) {
-                if (dotEl) dotEl.className = 'stale-dot';
-                if (labelEl) labelEl.textContent = 'Telemetry (Stale)';
-                timeEl.classList.add('stale-text');
+    if (typeof window.checkTelemetryStaleness === 'function') {
+        window.checkTelemetryStaleness();
+    } else {
+        const timeEl = document.getElementById('telemetry-time');
+        const dotEl = document.getElementById('telemetry-live-dot');
+        const labelEl = document.getElementById('telemetry-status-label');
+        if (timeEl && timeEl.dataset.timestamp) {
+            const dt = new Date(timeEl.dataset.timestamp);
+            if (!isNaN(dt.getTime())) {
+                timeEl.textContent = 'Updated ' + dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                const ageSec = (Date.now() - dt.getTime()) / 1000;
+                if (ageSec > 180) {
+                    if (dotEl) dotEl.className = 'stale-dot';
+                    if (labelEl) labelEl.textContent = 'Telemetry (Stale)';
+                    timeEl.classList.add('stale-text');
+                }
             }
         }
     }

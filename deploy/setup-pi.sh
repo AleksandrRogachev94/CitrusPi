@@ -71,14 +71,17 @@ sed -e "s|User=pi|User=$CURRENT_USER|g" \
     -e "s|/home/pi/citruspi/.venv/bin/python|$SCRIPT_DIR/.venv/bin/python|g" \
     deploy/citruspi.service | sudo tee /etc/systemd/system/citruspi.service > /dev/null
 
+# 6. Bootstrap config.yaml from example if missing, and secure permissions
+if [ ! -f config.yaml ]; then
+    echo "==> Creating initial config.yaml from config.example.yaml..."
+    cp config.example.yaml config.yaml
+fi
+chmod 600 config.yaml
+
 sudo systemctl daemon-reload
 sudo systemctl enable citruspi
 sudo systemctl restart citruspi
 
-# Secure config.yaml permissions if it exists
-if [ -f config.yaml ]; then
-    chmod 600 config.yaml
-fi
 
 echo ""
 echo "🍊 CitrusPi setup complete!"

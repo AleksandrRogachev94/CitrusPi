@@ -6,6 +6,7 @@ from datetime import datetime
 import logging
 from pathlib import Path
 import threading
+import time
 
 from citruspi import camera
 from citruspi.alerts import AlertManager
@@ -16,6 +17,9 @@ from citruspi.sensors import SensorHub
 from citruspi.store import Store
 
 logger = logging.getLogger(__name__)
+
+_last_ai_failure_time: float = 0.0
+_AI_BACKOFF_SEC: float = 600.0  # 10 minutes
 
 
 def sensor_tick(
@@ -47,13 +51,32 @@ def daily_tick(
     now: datetime | None = None,
 ) -> Path | None:
     """Execute a single daily timelapse check: schedule -> capture -> AI analysis."""
-    photo_path = camera.check_and_take_daily_capture(config, now=now)
+    global _last_ai_failure_time
+
+    curr_now = now or datetime.now()
+    today_str = curr_now.strftime("%Y-%m-%d")
+
+    photo_path = camera.check_and_take_daily_capture(config, now=curr_now)
     if photo_path:
         logger.info("Daily timelapse capture taken: %s", photo_path)
-        try:
-            run_daily_analysis(config, store, photo_path)
-        except Exception:
-            logger.exception("Daily AI analysis error")
+
+    target_path = photo_path or (config.captures_dir / f"{today_str}.jpg")
+    if config.ai_enabled and config.ai_api_key and target_path.is_file():
+        latest_rep = store.latest_report()
+        already_analyzed = latest_rep is not None and latest_rep.get("date") == today_str
+        if not already_analyzed and (time.time() - _last_ai_failure_time) >= _AI_BACKOFF_SEC:
+            try:
+                result = run_daily_analysis(config, store, target_path)
+                if result is None:
+                    _last_ai_failure_time = time.time()
+                    logger.warning(
+                        "Daily AI analysis returned None; backing off for %ds",
+                        int(_AI_BACKOFF_SEC),
+                    )
+            except Exception:
+                _last_ai_failure_time = time.time()
+                logger.exception("Daily AI analysis error")
+
     return photo_path
 
 

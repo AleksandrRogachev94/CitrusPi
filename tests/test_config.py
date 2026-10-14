@@ -73,3 +73,16 @@ def test_alerting_env_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cfg.ntfy_topic == "my-lemon-tent"
     assert cfg.heartbeat_url == "https://heartbeat.example.com/snitch"
     assert cfg.ai_api_key == "env-api-key-xyz"
+
+
+def test_camera_device_and_index_synchronization() -> None:
+    # Setting index should update camera_device
+    c1 = Config(camera_device_index=2)
+    assert c1.camera_device == "/dev/video2"
+    assert c1.camera_device_index == 2
+
+    # Setting device path should update index
+    c2 = Config(camera_device="/dev/video3")
+    assert c2.camera_device == "/dev/video3"
+    assert c2.camera_device_index == 3
+
