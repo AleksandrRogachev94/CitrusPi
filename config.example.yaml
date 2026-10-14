@@ -46,3 +46,12 @@ temp_min_crit_f: 38.0
 temp_min_warn_f: 44.0
 temp_max_crit_f: 85.0
 alert_debounce_count: 3
+
+# AI Analysis (daily visual health analysis using Google Gemini; dashboard-only, never sends ntfy)
+# ai_api_key can also be set via CITRUSPI_AI_API_KEY env var.
+ai_enabled: false
+ai_api_key: ""
+ai_model: "gemini-3.5-flash"
+# Must match the camera framing
+plant_layout: "Left to right: Kishu A, Kishu B, Meyer, Sumo"
+

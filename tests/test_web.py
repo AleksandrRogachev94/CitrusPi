@@ -68,3 +68,28 @@ def test_fragments_readings_loads(client: TestClient) -> None:
     assert "Temperature" in r.text
     assert "Humidity" in r.text
     assert "Root Zone Temp" in r.text
+
+
+def test_dashboard_with_ai_report(tmp_path: Path) -> None:
+    cfg = Config(
+        mock_sensors=True,
+        data_dir=tmp_path / "data",
+        captures_dir=tmp_path / "captures",
+    )
+    store = Store(cfg.data_dir)
+    store.save_daily_report(
+        date_str="2026-10-13",
+        status="healthy",
+        summary="All trees in good health. No leaf drop.",
+        leaf_drop=False,
+    )
+    sensors = SensorHub(cfg)
+    app = create_app(cfg, store, sensors)
+    tc = TestClient(app)
+
+    r = tc.get("/")
+    assert r.status_code == 200
+    assert "AI Canopy Health" in r.text
+    assert "HEALTHY" in r.text
+    assert "All trees in good health" in r.text
+

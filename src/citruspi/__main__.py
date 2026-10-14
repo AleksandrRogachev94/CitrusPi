@@ -19,6 +19,11 @@ def main() -> None:
         action="store_true",
         help="Send test ntfy alert and heartbeat ping, then exit",
     )
+    parser.add_argument(
+        "--analyze-now",
+        action="store_true",
+        help="Run AI analysis on latest timelapse capture, print JSON result, and exit",
+    )
     args = parser.parse_args()
 
     from citruspi.config import load_config
@@ -37,6 +42,38 @@ def main() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logger = logging.getLogger("citruspi")
+
+    if args.analyze_now:
+        if not config.ai_enabled:
+            print("AI analysis is disabled (set ai_enabled: true in config.yaml)", file=sys.stderr)
+            sys.exit(1)
+        if not config.ai_api_key:
+            print(
+                "AI API key missing (set ai_api_key in config.yaml or CITRUSPI_AI_API_KEY env var)",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        from citruspi import camera
+        from citruspi.analyzer import run_daily_analysis
+        from citruspi.store import Store
+
+        latest = camera.latest_photo(config)
+        if not latest:
+            print("No photos found in captures directory", file=sys.stderr)
+            sys.exit(1)
+
+        photo_path = config.captures_dir / latest["filename"]
+        store = Store(config.data_dir)
+        result = run_daily_analysis(config, store, photo_path)
+        if result is None:
+            print("AI analysis failed (see logs for details)", file=sys.stderr)
+            sys.exit(1)
+
+        import json
+
+        print(json.dumps(result, indent=2))
+        sys.exit(0)
 
     from citruspi.alerts import AlertManager
 
@@ -138,9 +175,16 @@ def main() -> None:
             config.daily_capture_hour,
             config.daily_capture_minute,
         )
+        from citruspi.analyzer import run_daily_analysis
+
         while not stop_event.is_set():
             try:
-                camera.check_and_take_daily_capture(config)
+                photo_path = camera.check_and_take_daily_capture(config)
+                if photo_path:
+                    try:
+                        run_daily_analysis(config, store, photo_path)
+                    except Exception:
+                        logger.exception("Daily AI analysis error")
             except Exception:
                 logger.exception("Daily photo check error")
             # Check every 30 seconds

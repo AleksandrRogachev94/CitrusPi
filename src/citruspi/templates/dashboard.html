@@ -50,6 +50,26 @@
                 <div id="camera-caption" class="camera-caption" style="display:none;"></div>
             {% endif %}
         </div>
+
+        {% if latest_report %}
+        <div class="ai-report-card">
+            <div class="ai-report-header">
+                <div class="ai-report-meta">
+                    <span class="ai-report-title">🤖 AI Canopy Health</span>
+                    <span class="ai-report-date">{{ latest_report.date }}</span>
+                </div>
+                <div class="ai-report-badges">
+                    {% if latest_report.leaf_drop %}
+                    <span class="ai-badge badge-leaf-drop">🍂 Leaf Drop</span>
+                    {% endif %}
+                    <span class="ai-badge badge-{{ latest_report.status }}">
+                        {{ latest_report.status|upper }}
+                    </span>
+                </div>
+            </div>
+            <div class="ai-report-summary">{{ latest_report.summary }}</div>
+        </div>
+        {% endif %}
     </section>
 
     <!-- Column 2: Telemetry Charts (Synchronized Dual Visualizations) -->

@@ -46,6 +46,12 @@ class Config:
     temp_max_crit_f: float = 85.0
     alert_debounce_count: int = 3
 
+    # ── AI Analysis ───────────────────────────────────────────────────
+    ai_enabled: bool = False
+    ai_api_key: str = field(default_factory=lambda: os.environ.get("CITRUSPI_AI_API_KEY", ""))
+    ai_model: str = "gemini-3.8-flash"
+    plant_layout: str = ""  # must match the camera framing
+
     # ── Web server ────────────────────────────────────────────────────
     host: str = "0.0.0.0"
     port: int = 80
@@ -92,6 +98,8 @@ def load_config(path: str | Path | None = None) -> Config:
         raw["ntfy_topic"] = os.environ["CITRUSPI_NTFY_TOPIC"]
     if "CITRUSPI_HEARTBEAT_URL" in os.environ:
         raw["heartbeat_url"] = os.environ["CITRUSPI_HEARTBEAT_URL"]
+    if "CITRUSPI_AI_API_KEY" in os.environ:
+        raw["ai_api_key"] = os.environ["CITRUSPI_AI_API_KEY"]
 
     valid_fields = {f.name for f in dataclasses.fields(Config)}
     filtered: dict[str, Any] = {}

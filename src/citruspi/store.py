@@ -59,6 +59,21 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
             "ALTER TABLE readings ADD COLUMN vpd_kpa REAL;",
         ],
     ),
+    (
+        4,
+        "add_daily_reports_table",
+        [
+            """
+            CREATE TABLE IF NOT EXISTS daily_reports (
+                date        TEXT PRIMARY KEY,
+                created_at  TEXT NOT NULL,
+                status      TEXT NOT NULL,
+                summary     TEXT NOT NULL,
+                leaf_drop   INTEGER NOT NULL DEFAULT 0
+            );
+            """,
+        ],
+    ),
 ]
 
 
@@ -236,6 +251,10 @@ class Store:
                 MIN(temp_c) AS temp_min,
                 MAX(temp_c) AS temp_max,
                 ROUND(AVG(temp_c), 2) AS temp_avg,
+                MIN(temp_f) AS temp_min_f,
+                MAX(temp_f) AS temp_max_f,
+                MIN(root_temp_f) AS root_temp_min_f,
+                MAX(root_temp_f) AS root_temp_max_f,
                 MIN(humidity) AS hum_min,
                 MAX(humidity) AS hum_max,
                 ROUND(AVG(humidity), 2) AS hum_avg,
@@ -248,6 +267,41 @@ class Store:
             (start_ts, end_ts),
         ).fetchone()
         return dict(row) if row else {}
+
+    # ── Daily AI Analysis Reports ─────────────────────────────────────────────
+
+    def save_daily_report(
+        self,
+        date_str: str,
+        status: str,
+        summary: str,
+        leaf_drop: bool | int = 0,
+    ) -> None:
+        """Save or update daily AI analysis report (upsert)."""
+        conn = self._get_conn()
+        now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        leaf_drop_int = 1 if leaf_drop else 0
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO daily_reports (date, created_at, status, summary, leaf_drop)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(date) DO UPDATE SET
+                    created_at = excluded.created_at,
+                    status = excluded.status,
+                    summary = excluded.summary,
+                    leaf_drop = excluded.leaf_drop;
+                """,
+                (date_str, now_utc, status, summary, leaf_drop_int),
+            )
+
+    def latest_report(self) -> dict[str, Any] | None:
+        """Return the most recent daily AI analysis report."""
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT * FROM daily_reports ORDER BY date DESC LIMIT 1;"
+        ).fetchone()
+        return dict(row) if row else None
 
     def get_applied_migrations(self) -> list[dict[str, Any]]:
         """Return list of applied migrations for inspection."""

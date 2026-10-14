@@ -9,10 +9,11 @@ from citruspi.store import Store
 def test_migrations_applied(tmp_path: Path) -> None:
     store = Store(tmp_path)
     migrations = store.get_applied_migrations()
-    assert len(migrations) >= 3
+    assert len(migrations) >= 4
     assert migrations[0]["version"] == 1
     assert migrations[1]["version"] == 2
     assert migrations[2]["version"] == 3
+    assert migrations[3]["version"] == 4
 
 
 def test_insert_dict_and_latest(tmp_path: Path) -> None:
@@ -69,13 +70,82 @@ def test_history_downsampled(tmp_path: Path) -> None:
 def test_daily_summary(tmp_path: Path) -> None:
     store = Store(tmp_path)
     date_str = "2026-10-13"
-    store.insert(Reading.create(temp_c=10.0, humidity=50.0, timestamp=f"{date_str}T08:00:00Z"))
-    store.insert(Reading.create(temp_c=20.0, humidity=70.0, timestamp=f"{date_str}T14:00:00Z"))
+    store.insert(
+        Reading.create(
+            temp_c=10.0,
+            humidity=50.0,
+            root_temp_c=12.0,
+            timestamp=f"{date_str}T08:00:00Z",
+        )
+    )
+    store.insert(
+        Reading.create(
+            temp_c=20.0,
+            humidity=70.0,
+            root_temp_c=15.0,
+            timestamp=f"{date_str}T14:00:00Z",
+        )
+    )
 
     summary = store.daily_summary(date_str)
     assert summary["sample_count"] == 2
     assert summary["temp_min"] == 10.0
     assert summary["temp_max"] == 20.0
     assert summary["temp_avg"] == 15.0
+    assert summary["temp_min_f"] == 50.0
+    assert summary["temp_max_f"] == 68.0
+    assert summary["root_temp_min_f"] == 53.6
+    assert summary["root_temp_max_f"] == 59.0
     assert summary["hum_min"] == 50.0
     assert summary["hum_max"] == 70.0
+
+
+def test_save_and_latest_daily_report(tmp_path: Path) -> None:
+    store = Store(tmp_path)
+
+    assert store.latest_report() is None
+
+    # Save initial report
+    store.save_daily_report(
+        date_str="2026-10-12",
+        status="healthy",
+        summary="All trees look fine.",
+        leaf_drop=False,
+    )
+
+    latest = store.latest_report()
+    assert latest is not None
+    assert latest["date"] == "2026-10-12"
+    assert latest["status"] == "healthy"
+    assert latest["summary"] == "All trees look fine."
+    assert latest["leaf_drop"] == 0
+
+    # Save report for newer date
+    store.save_daily_report(
+        date_str="2026-10-13",
+        status="watch",
+        summary="Meyer leaf drop detected.",
+        leaf_drop=True,
+    )
+
+    latest2 = store.latest_report()
+    assert latest2 is not None
+    assert latest2["date"] == "2026-10-13"
+    assert latest2["status"] == "watch"
+    assert latest2["leaf_drop"] == 1
+    assert "Meyer leaf drop" in latest2["summary"]
+
+    # Upsert test: overwrite report for same date
+    store.save_daily_report(
+        date_str="2026-10-13",
+        status="alert",
+        summary="Updated: severe defoliation.",
+        leaf_drop=True,
+    )
+
+    latest_upsert = store.latest_report()
+    assert latest_upsert is not None
+    assert latest_upsert["date"] == "2026-10-13"
+    assert latest_upsert["status"] == "alert"
+    assert latest_upsert["summary"] == "Updated: severe defoliation."
+

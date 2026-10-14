@@ -45,12 +45,14 @@ def create_app(config: Config, store: Store, sensors: SensorHub) -> FastAPI:
     def dashboard(request: Request) -> HTMLResponse:
         latest = store.latest()
         photo = camera.latest_photo(config)
+        latest_report = store.latest_report()
         return templates.TemplateResponse(
             request=request,
             name="dashboard.html",
             context={
                 "reading": latest,
                 "photo": photo,
+                "latest_report": latest_report,
                 "is_mock": sensors.is_mock,
                 "config": config,
             },
