@@ -16,9 +16,17 @@ rsync -avz --exclude '.venv' . pi@citruspi.local:~/citruspi
 ### 2. Run Setup
 ```bash
 ssh pi@citruspi.local
+
+# 1. Set the Pi timezone to your local time (photoperiod depends on local time)
+sudo timedatectl set-timezone America/New_York  # Replace with your timezone
+
+# 2. Run setup script
 cd ~/citruspi && ./deploy/setup-pi.sh
+
+# 3. Reboot the Pi (required for 1-Wire kernel overlay to activate)
+sudo reboot
 ```
-*Note: The script automatically enables I2C and 1-Wire, installs dependencies, and configures `log2ram` to protect your microSD card from write wear.*
+*Note: The script automatically enables I2C and 1-Wire, installs dependencies, secures `config.yaml`, and configures `log2ram` to protect your microSD card from write wear.*
 
 Done. Open **http://citruspi.local** in your browser (no port needed).
 

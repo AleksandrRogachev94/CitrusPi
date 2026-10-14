@@ -1,13 +1,34 @@
 <!-- Sensor Cards Fragment (polled by htmx every 30s) -->
 <div class="readings-meta-bar">
     <div class="meta-status">
-        <span class="live-dot"></span>
-        <span class="meta-title">Telemetry Feed</span>
+        <span class="live-dot" id="telemetry-live-dot"></span>
+        <span class="meta-title" id="telemetry-status-label">Telemetry Feed</span>
     </div>
     {% if reading and reading.timestamp %}
-        <span class="meta-time">Updated {{ reading.timestamp[11:19] }} UTC</span>
+        <span class="meta-time" id="telemetry-time" data-timestamp="{{ reading.timestamp }}">Updated {{ reading.timestamp[11:19] }} UTC</span>
+    {% else %}
+        <span class="meta-time muted">No readings yet</span>
     {% endif %}
 </div>
+<script>
+(function() {
+    const timeEl = document.getElementById('telemetry-time');
+    const dotEl = document.getElementById('telemetry-live-dot');
+    const labelEl = document.getElementById('telemetry-status-label');
+    if (timeEl && timeEl.dataset.timestamp) {
+        const dt = new Date(timeEl.dataset.timestamp);
+        if (!isNaN(dt.getTime())) {
+            timeEl.textContent = 'Updated ' + dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const ageSec = (Date.now() - dt.getTime()) / 1000;
+            if (ageSec > 180) {
+                if (dotEl) dotEl.className = 'stale-dot';
+                if (labelEl) labelEl.textContent = 'Telemetry (Stale)';
+                timeEl.classList.add('stale-text');
+            }
+        }
+    }
+})();
+</script>
 
 <section class="cards">
     <!-- Temperature Card -->
@@ -44,7 +65,7 @@
             </div>
             <div class="card-sub">
                 {% if reading and reading.vpd_kpa is not none %}
-                    <span class="vpd-badge {% if reading.vpd_kpa > 1.4 %}vpd-high{% elif reading.vpd_kpa < 0.6 %}vpd-low{% else %}vpd-opt{% endif %}" title="Vapor Pressure Deficit (Optimal: 0.6 - 1.4 kPa)">
+                    <span class="vpd-badge" title="Vapor Pressure Deficit (Canopy)">
                         VPD: {{ "%.2f"|format(reading.vpd_kpa) }} kPa
                     </span>
                 {% else %}

@@ -144,6 +144,105 @@ def strip_code_fences(text: str) -> str:
     return text
 
 
+def build_analysis_request(
+    config: Config,
+    store: Store,
+    today_path: Path,
+    today_date: date,
+) -> list[dict[str, Any]]:
+    """Build the Gemini generateContent parts list for the daily comparison."""
+    frames = select_analysis_frames(config.captures_dir, today_path, today_date)
+
+    summary = store.summary_last_hours(hours=24)
+    t_min, t_max = summary.get("temp_min_f"), summary.get("temp_max_f")
+    r_min, r_max = summary.get("root_temp_min_f"), summary.get("root_temp_max_f")
+
+    canopy_info = (
+        f"{t_min:.1f}°F min / {t_max:.1f}°F max"
+        if t_min is not None and t_max is not None
+        else "N/A"
+    )
+    root_info = (
+        f"{r_min:.1f}°F min / {r_max:.1f}°F max"
+        if r_min is not None and r_max is not None
+        else "N/A"
+    )
+
+    prompt = (
+        f"Plant layout: {config.plant_layout}\n"
+        f"24h temperatures — Canopy: {canopy_info}, Root: {root_info}\n\n"
+        "Report per tree using the layout. "
+        "Describe ONLY visible physical differences between frames "
+        "(fallen leaves on the floor or pots, curl, yellowing, wilt). "
+        "If nothing clearly differs, say 'No visible change'. "
+        "Do NOT speculate about causes.\n\n"
+        "Output strictly valid JSON with this structure:\n"
+        '{"status": "healthy"|"watch"|"alert", "leaf_drop": bool, "summary": "str"}'
+    )
+
+    parts: list[dict[str, Any]] = []
+    for f_date, f_path, delta in frames:
+        delta_str = "today" if delta == 0 else f"{abs(delta)}d ago"
+        parts.append({"text": f"Frame {f_date} ({delta_str}):"})
+        b64_img = base64.b64encode(downscale_image(f_path.read_bytes())).decode("ascii")
+        parts.append({"inlineData": {"mimeType": "image/jpeg", "data": b64_img}})
+    parts.append({"text": prompt})
+    return parts
+
+
+def call_gemini_api(
+    model: str,
+    api_key: str,
+    parts: list[dict[str, Any]],
+    timeout: float = 60.0,
+) -> str | None:
+    """Call Google Gemini generateContent API and return raw response text."""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    response = httpx.post(
+        url,
+        headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+        json={
+            "contents": [{"parts": parts}],
+            "generationConfig": {"responseMimeType": "application/json", "temperature": 0.2},
+        },
+        timeout=timeout,
+    )
+    response.raise_for_status()
+
+    data = response.json()
+    candidates = data.get("candidates", [])
+    if not candidates:
+        return None
+
+    return candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+
+
+def parse_analysis_response(raw_text: str) -> dict[str, Any] | None:
+    """Parse JSON text into validated verdict dict."""
+    try:
+        parsed = json.loads(strip_code_fences(raw_text))
+    except Exception:
+        logger.warning("Failed to parse AI JSON response: %s", raw_text)
+        return None
+
+    if not isinstance(parsed, dict):
+        logger.warning("AI model returned non-dict JSON: %s", type(parsed).__name__)
+        return None
+
+    status = str(parsed.get("status", "watch")).strip().lower()
+    if status not in {"healthy", "watch", "alert"}:
+        status = "watch"
+
+    leaf_drop = bool(parsed.get("leaf_drop", False))
+    summary_text = str(parsed.get("summary", "")).strip()
+
+    return {
+        "status": status,
+        "leaf_drop": leaf_drop,
+        "summary": summary_text,
+    }
+
+
 def run_daily_analysis(
     config: Config,
     store: Store,
@@ -171,81 +270,27 @@ def run_daily_analysis(
             today_date = datetime.now().date()
         today_str = today_date.strftime("%Y-%m-%d")
 
-        frames = select_analysis_frames(config.captures_dir, today_path, today_date)
-
-        summary = store.daily_summary(today_str)
-        t_min, t_max = summary.get("temp_min_f"), summary.get("temp_max_f")
-        r_min, r_max = summary.get("root_temp_min_f"), summary.get("root_temp_max_f")
-
-        canopy_info = (
-            f"{t_min:.1f}°F min / {t_max:.1f}°F max"
-            if t_min is not None and t_max is not None
-            else "N/A"
-        )
-        root_info = (
-            f"{r_min:.1f}°F min / {r_max:.1f}°F max"
-            if r_min is not None and r_max is not None
-            else "N/A"
-        )
-
-        prompt = (
-            f"Plant layout: {config.plant_layout}\n"
-            f"24h temperatures — Canopy: {canopy_info}, Root: {root_info}\n\n"
-            "Report per tree using the layout. "
-            "Describe ONLY visible physical differences between frames "
-            "(fallen leaves on the floor or pots, curl, yellowing, wilt). "
-            "If nothing clearly differs, say 'No visible change'. "
-            "Do NOT speculate about causes.\n\n"
-            "Output strictly valid JSON with this structure:\n"
-            '{"status": "healthy"|"watch"|"alert", "leaf_drop": bool, "summary": "str"}'
-        )
-
-        parts: list[dict[str, Any]] = []
-        for f_date, f_path, delta in frames:
-            delta_str = "today" if delta == 0 else f"{abs(delta)}d ago"
-            parts.append({"text": f"Frame {f_date} ({delta_str}):"})
-            b64_img = base64.b64encode(downscale_image(f_path.read_bytes())).decode("ascii")
-            parts.append({"inlineData": {"mimeType": "image/jpeg", "data": b64_img}})
-        parts.append({"text": prompt})
-
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{config.ai_model}:generateContent"
-        response = httpx.post(
-            url,
-            headers={"x-goog-api-key": config.ai_api_key, "Content-Type": "application/json"},
-            json={
-                "contents": [{"parts": parts}],
-                "generationConfig": {"responseMimeType": "application/json", "temperature": 0.2},
-            },
-            timeout=60,
-        )
-        response.raise_for_status()
-
-        data = response.json()
-        candidates = data.get("candidates", [])
-        if not candidates:
+        parts = build_analysis_request(config, store, today_path, today_date)
+        raw_text = call_gemini_api(config.ai_model, config.ai_api_key, parts)
+        if not raw_text:
             return None
 
-        raw_text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-        parsed = json.loads(strip_code_fences(raw_text))
-
-        if not isinstance(parsed, dict):
-            logger.warning("AI model returned non-dict JSON: %s", type(parsed).__name__)
+        verdict = parse_analysis_response(raw_text)
+        if not verdict:
             return None
 
-        status = str(parsed.get("status", "watch")).strip().lower()
-        if status not in {"healthy", "watch", "alert"}:
-            status = "watch"
-
-        leaf_drop = bool(parsed.get("leaf_drop", False))
-        summary_text = str(parsed.get("summary", "")).strip()
-
-        store.save_daily_report(today_str, status, summary_text, leaf_drop)
+        store.save_daily_report(
+            today_str,
+            verdict["status"],
+            verdict["summary"],
+            verdict["leaf_drop"],
+        )
 
         return {
             "date": today_str,
-            "status": status,
-            "leaf_drop": leaf_drop,
-            "summary": summary_text,
+            "status": verdict["status"],
+            "leaf_drop": verdict["leaf_drop"],
+            "summary": verdict["summary"],
         }
     except Exception:
         logger.exception("Daily AI analysis failed")

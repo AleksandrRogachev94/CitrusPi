@@ -420,3 +420,18 @@ def test_ai_missing_key_returns_none_without_http(
         result = run_daily_analysis(test_config, store, today_photo)
         assert result is None
         mock_post.assert_not_called()
+
+
+def test_parse_analysis_response() -> None:
+    from citruspi.analyzer import parse_analysis_response
+
+    # Valid response
+    res = parse_analysis_response('{"status": "healthy", "leaf_drop": false, "summary": "Looking great"}')
+    assert res == {"status": "healthy", "leaf_drop": False, "summary": "Looking great"}
+
+    # Fenced markdown
+    res_fenced = parse_analysis_response('```json\n{"status": "alert", "leaf_drop": true, "summary": "Heavy drop"}\n```')
+    assert res_fenced == {"status": "alert", "leaf_drop": True, "summary": "Heavy drop"}
+
+    # Invalid JSON
+    assert parse_analysis_response("not valid json") is None

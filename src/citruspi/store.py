@@ -144,22 +144,8 @@ class Store:
 
     # ── Write Operations ──────────────────────────────────────────────────────
 
-    def insert(self, reading: Reading | dict[str, Any]) -> None:
+    def insert(self, reading: Reading) -> None:
         """Insert a sensor reading."""
-        if isinstance(reading, dict):
-            reading = Reading.create(
-                temp_c=reading.get("temp_c"),
-                temp_f=reading.get("temp_f"),
-                humidity=reading.get("humidity"),
-                pressure=reading.get("pressure"),
-                soil_moisture=reading.get("soil_moisture"),
-                root_temp_c=reading.get("root_temp_c"),
-                root_temp_f=reading.get("root_temp_f"),
-                light_lux=reading.get("light_lux"),
-                vpd_kpa=reading.get("vpd_kpa"),
-                timestamp=reading.get("timestamp"),
-            )
-
         conn = self._get_conn()
         with conn:
             conn.execute(
@@ -266,6 +252,55 @@ class Store:
             """,
             (start_ts, end_ts),
         ).fetchone()
+        return dict(row) if row else {}
+
+    def summary_last_hours(
+        self, hours: int = 24, before_ts: str | None = None
+    ) -> dict[str, Any]:
+        """Min/max/avg for the last *hours* hours before *before_ts* (or now)."""
+        conn = self._get_conn()
+        cutoff = f"-{hours}"
+        if before_ts:
+            query = """
+                SELECT
+                    MIN(temp_c) AS temp_min,
+                    MAX(temp_c) AS temp_max,
+                    ROUND(AVG(temp_c), 2) AS temp_avg,
+                    MIN(temp_f) AS temp_min_f,
+                    MAX(temp_f) AS temp_max_f,
+                    MIN(root_temp_f) AS root_temp_min_f,
+                    MAX(root_temp_f) AS root_temp_max_f,
+                    MIN(humidity) AS hum_min,
+                    MAX(humidity) AS hum_max,
+                    ROUND(AVG(humidity), 2) AS hum_avg,
+                    MIN(soil_moisture) AS soil_min,
+                    MAX(soil_moisture) AS soil_max,
+                    COUNT(*) AS sample_count
+                FROM readings
+                WHERE timestamp >= strftime('%Y-%m-%dT%H:%M:%SZ', ?, ? || ' hours')
+                  AND timestamp <= ?;
+            """
+            row = conn.execute(query, (before_ts, cutoff, before_ts)).fetchone()
+        else:
+            query = """
+                SELECT
+                    MIN(temp_c) AS temp_min,
+                    MAX(temp_c) AS temp_max,
+                    ROUND(AVG(temp_c), 2) AS temp_avg,
+                    MIN(temp_f) AS temp_min_f,
+                    MAX(temp_f) AS temp_max_f,
+                    MIN(root_temp_f) AS root_temp_min_f,
+                    MAX(root_temp_f) AS root_temp_max_f,
+                    MIN(humidity) AS hum_min,
+                    MAX(humidity) AS hum_max,
+                    ROUND(AVG(humidity), 2) AS hum_avg,
+                    MIN(soil_moisture) AS soil_min,
+                    MAX(soil_moisture) AS soil_max,
+                    COUNT(*) AS sample_count
+                FROM readings
+                WHERE timestamp >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ? || ' hours');
+            """
+            row = conn.execute(query, (cutoff,)).fetchone()
         return dict(row) if row else {}
 
     # ── Daily AI Analysis Reports ─────────────────────────────────────────────

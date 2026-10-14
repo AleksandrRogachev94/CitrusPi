@@ -183,6 +183,18 @@ body {
     box-shadow: 0 0 8px #22c55e;
 }
 
+.stale-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #f59e0b;
+    box-shadow: 0 0 8px #f59e0b;
+}
+
+.stale-text {
+    color: #f59e0b !important;
+}
+
 .meta-time {
     font-size: 0.75rem;
     color: var(--text-muted);
@@ -265,10 +277,10 @@ body {
     padding: 0.15rem 0.5rem;
     border-radius: 4px;
     letter-spacing: 0.02em;
+    background: rgba(148, 163, 184, 0.15);
+    color: var(--text-muted);
+    border: 1px solid rgba(148, 163, 184, 0.25);
 }
-.vpd-opt  { background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); }
-.vpd-high { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
-.vpd-low  { background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); }
 
 /* ── 2-Column Desktop Grid (Zero-Scroll Stage) ─────────────── */
 

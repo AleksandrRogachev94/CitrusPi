@@ -149,8 +149,10 @@ class _BME280:
         h = t_fine - 76800.0
         humidity = 0.0
         if h != 0:
+            h_scale = 1.0 + (c["H3"] / 67108864.0) * h
+            h_intermediate = 1.0 + (c["H6"] / 67108864.0) * h * h_scale
             humidity = (raw_h - (c["H4"] * 64.0 + c["H5"] / 16384.0 * h)) * (
-                c["H2"] / 65536.0 * (1.0 + c["H6"] / 67108864.0 * h * (1.0 + c["H3"] / 67108864.0 * h))
+                c["H2"] / 65536.0 * h_intermediate
             )
             humidity *= 1.0 - c["H1"] * humidity / 524288.0
             humidity = max(0.0, min(humidity, 100.0))
@@ -220,10 +222,6 @@ class _DS18B20:
             self._device_file = None
             return None
 
-    def read_temp_c(self) -> float | None:
-        """Convenience alias for read()."""
-        return self.read()
-
 
 # ── Public interface ─────────────────────────────────────────────────────────
 
@@ -232,10 +230,12 @@ class SensorHub:
     """Unified interface — real hardware on Pi, mock data only when explicitly enabled."""
 
     def __init__(self, config: Config) -> None:
+        self.config = config
         self._mock: _MockSensors | None = None
         self._bme: _BME280 | None = None
         self._ds18b20: _DS18B20 | None = None
         self._bus: Any = None
+        self._last_bme_init_attempt: float = 0.0
         self._lock = threading.Lock()
 
         if config.mock_sensors:
@@ -244,21 +244,7 @@ class SensorHub:
             return
 
         # STRICT MOCK RULE: When config.mock_sensors is False, NEVER fall back to mock data.
-        # Initialize BME280 on I2C bus 1
-        try:
-            import smbus2  # type: ignore[import-untyped]
-
-            self._bus = smbus2.SMBus(1)
-        except Exception as exc:
-            logger.warning("I2C bus 1 unavailable (%s)", exc)
-            self._bus = None
-
-        if self._bus is not None:
-            try:
-                self._bme = _BME280(self._bus, config.bme280_address)
-                logger.info("BME280 initialised at 0x%02X", config.bme280_address)
-            except Exception as exc:
-                logger.warning("BME280 unavailable (%s)", exc)
+        self._try_init_bme()
 
         # Initialize DS18B20 1-Wire temperature probe
         try:
@@ -266,6 +252,30 @@ class SensorHub:
             logger.info("DS18B20 probe configured at %s", config.w1_devices_dir)
         except Exception as exc:
             logger.warning("DS18B20 unavailable (%s)", exc)
+
+    def _try_init_bme(self) -> None:
+        """Attempt to initialize or re-initialize BME280 on I2C bus."""
+        now = time.time()
+        if self._last_bme_init_attempt > 0 and (now - self._last_bme_init_attempt) < 30.0:
+            return
+        self._last_bme_init_attempt = now
+
+        if self._bus is None:
+            try:
+                import smbus2  # type: ignore[import-untyped]
+
+                self._bus = smbus2.SMBus(1)
+            except Exception as exc:
+                logger.warning("I2C bus 1 unavailable (%s)", exc)
+                self._bus = None
+                return
+
+        try:
+            self._bme = _BME280(self._bus, self.config.bme280_address)
+            logger.info("BME280 initialised at 0x%02X", self.config.bme280_address)
+        except Exception as exc:
+            logger.warning("BME280 unavailable (%s)", exc)
+            self._bme = None
 
     @property
     def is_mock(self) -> bool:
@@ -288,6 +298,10 @@ class SensorHub:
             pressure: float | None = None
             root_temp_c: float | None = None
 
+            # Self-healing retry if BME280 was not ready at boot or had a bus glitch
+            if self._bme is None:
+                self._try_init_bme()
+
             if self._bme:
                 try:
                     bme_data = self._bme.read()
@@ -296,6 +310,7 @@ class SensorHub:
                     pressure = bme_data.get("pressure")
                 except Exception:
                     logger.exception("BME280 read error")
+                    self._bme = None
 
             if self._ds18b20:
                 try:

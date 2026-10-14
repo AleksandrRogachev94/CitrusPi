@@ -39,8 +39,8 @@ class Config:
 
     # ── Alerts & Heartbeat ────────────────────────────────────────────
     ntfy_url: str = "https://ntfy.sh"
-    ntfy_topic: str = field(default_factory=lambda: os.environ.get("CITRUSPI_NTFY_TOPIC", ""))
-    heartbeat_url: str = field(default_factory=lambda: os.environ.get("CITRUSPI_HEARTBEAT_URL", ""))
+    ntfy_topic: str = ""
+    heartbeat_url: str = ""
     temp_min_crit_f: float = 38.0
     temp_min_warn_f: float = 44.0
     temp_max_crit_f: float = 85.0
@@ -48,7 +48,7 @@ class Config:
 
     # ── AI Analysis ───────────────────────────────────────────────────
     ai_enabled: bool = False
-    ai_api_key: str = field(default_factory=lambda: os.environ.get("CITRUSPI_AI_API_KEY", ""))
+    ai_api_key: str = ""
     ai_model: str = "gemini-3.8-flash"
     plant_layout: str = ""  # must match the camera framing
 

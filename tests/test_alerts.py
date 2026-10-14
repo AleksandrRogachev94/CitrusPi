@@ -262,14 +262,14 @@ def test_critical_cooldown_cleared_on_resolution(base_config: Config) -> None:
         for _ in range(3):
             alerts.evaluate(Reading.create(temp_f=35.0))
         assert alerts.rules["temp_crit_low"].is_active
-        assert alerts.rules["temp_crit_low"]._last_sent == 1000.0
+        assert alerts.rules["temp_crit_low"].last_sent == 1000.0
 
         # Recover at t=1100
         clock.advance(100)
         alerts.evaluate(Reading.create(temp_f=50.0))
         assert not alerts.rules["temp_crit_low"].is_active
-        # Critical rule must clear _last_sent
-        assert alerts.rules["temp_crit_low"]._last_sent is None
+        # Critical rule must clear last_sent
+        assert alerts.rules["temp_crit_low"].last_sent is None
 
         # Relapse occurs at t=1200 (only 200s after initial alert; cooldown is 30m / 1800s)
         clock.advance(100)
@@ -283,11 +283,11 @@ def test_critical_cooldown_cleared_on_resolution(base_config: Config) -> None:
         alerts.evaluate(Reading.create(temp_f=35.0))
         assert alerts.rules["temp_crit_low"].is_active
         assert mock_post.call_count == 1
-        assert alerts.rules["temp_crit_low"]._last_sent == 1200.0
+        assert alerts.rules["temp_crit_low"].last_sent == 1200.0
 
 
 def test_non_critical_cooldown_retained_on_resolution(base_config: Config) -> None:
-    """Non-critical rules (e.g. temp_warn_low) retain _last_sent so flapping does not spam."""
+    """Non-critical rules (e.g. temp_warn_low) retain last_sent so flapping does not spam."""
     clock = MockClock(1000.0)
     alerts = AlertManager(base_config, clock=clock)
 
@@ -298,14 +298,14 @@ def test_non_critical_cooldown_retained_on_resolution(base_config: Config) -> No
         for _ in range(3):
             alerts.evaluate(Reading.create(temp_f=42.0))
         assert alerts.rules["temp_warn_low"].is_active
-        assert alerts.rules["temp_warn_low"]._last_sent == 1000.0
+        assert alerts.rules["temp_warn_low"].last_sent == 1000.0
 
         # Recover at t=1100
         clock.advance(100)
         alerts.evaluate(Reading.create(temp_f=50.0))
         assert not alerts.rules["temp_warn_low"].is_active
-        # Non-critical rule does NOT clear _last_sent
-        assert alerts.rules["temp_warn_low"]._last_sent == 1000.0
+        # Non-critical rule does NOT clear last_sent
+        assert alerts.rules["temp_warn_low"].last_sent == 1000.0
 
         # Relapse at t=1200 (within 4h cooldown = 14400s)
         clock.advance(100)
@@ -322,7 +322,7 @@ def test_non_critical_cooldown_retained_on_resolution(base_config: Config) -> No
 
 
 def test_failed_send_retried_next_poll(base_config: Config) -> None:
-    """A failed send does not mark active or record _last_sent, and retries on next poll."""
+    """A failed send does not mark active or record last_sent, and retries on next poll."""
     clock = MockClock(1000.0)
     alerts = AlertManager(base_config, clock=clock)
 
@@ -336,8 +336,8 @@ def test_failed_send_retried_next_poll(base_config: Config) -> None:
         alerts.evaluate(Reading.create(temp_f=35.0))
 
         assert alerts.rules["temp_crit_low"].breach_count == 3
-        # Failed send must not record _last_sent or mark active
-        assert alerts.rules["temp_crit_low"]._last_sent is None
+        # Failed send must not record last_sent or mark active
+        assert alerts.rules["temp_crit_low"].last_sent is None
         assert not alerts.rules["temp_crit_low"].is_active
 
         # 4th poll: network recovers
@@ -349,7 +349,7 @@ def test_failed_send_retried_next_poll(base_config: Config) -> None:
         assert alerts.rules["temp_crit_low"].breach_count == 4
         # Alert successfully sent on retry
         assert alerts.rules["temp_crit_low"].is_active
-        assert alerts.rules["temp_crit_low"]._last_sent == 1060.0
+        assert alerts.rules["temp_crit_low"].last_sent == 1060.0
         assert mock_post.call_count == 2
 
 
@@ -396,7 +396,8 @@ def test_send_heartbeat_success(base_config: Config) -> None:
 
     with patch("httpx.get") as mock_get:
         mock_get.return_value = MagicMock(status_code=200, raise_for_status=lambda: None)
-        alerts.send_heartbeat()
+        ok = alerts.send_heartbeat()
+        assert ok is True
         mock_get.assert_called_once_with("https://heartbeat.example.com/ping", timeout=3.0)
 
 
@@ -409,14 +410,14 @@ def test_cli_test_alert_success() -> None:
     with (
         patch("sys.argv", ["citruspi", "--test-alert"]),
         patch("citruspi.alerts.AlertManager.send_ntfy", return_value=True) as mock_ntfy,
-        patch("citruspi.alerts.AlertManager.send_heartbeat") as mock_hb,
-        patch("sys.exit") as mock_exit,
+        patch("citruspi.alerts.AlertManager.send_heartbeat", return_value=True) as mock_hb,
+        pytest.raises(SystemExit) as exc_info,
     ):
         main()
-        mock_ntfy.assert_called_once()
-        assert mock_ntfy.call_args[1]["priority"] == "urgent"
-        mock_hb.assert_called_once()
-        mock_exit.assert_called_once_with(0)
+    mock_ntfy.assert_called_once()
+    assert mock_ntfy.call_args[1]["priority"] == "urgent"
+    mock_hb.assert_called_once()
+    assert exc_info.value.code == 0
 
 
 def test_cli_test_alert_failure() -> None:
@@ -425,11 +426,11 @@ def test_cli_test_alert_failure() -> None:
     with (
         patch("sys.argv", ["citruspi", "--test-alert"]),
         patch("citruspi.alerts.AlertManager.send_ntfy", return_value=False) as mock_ntfy,
-        patch("citruspi.alerts.AlertManager.send_heartbeat") as mock_hb,
-        patch("sys.exit") as mock_exit,
+        patch("citruspi.alerts.AlertManager.send_heartbeat", return_value=True) as mock_hb,
+        pytest.raises(SystemExit) as exc_info,
     ):
         main()
-        mock_ntfy.assert_called_once()
-        mock_hb.assert_called_once()
-        mock_exit.assert_called_once_with(1)
+    mock_ntfy.assert_called_once()
+    mock_hb.assert_called_once()
+    assert exc_info.value.code == 1
 

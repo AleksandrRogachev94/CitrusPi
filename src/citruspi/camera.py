@@ -59,18 +59,23 @@ def _get_placeholder_jpeg(text: str = "CitrusPi Camera Offline") -> bytes:
         return _MINIMAL_JPEG
 
 
-def capture_frame(config: Config, filename: str | None = None) -> Path | None:
-    """Capture a single JPEG from the USB camera.
+import re
 
-    Saves to captures/{filename} or captures/YYYY-MM-DD.jpg.
+_DAILY_PHOTO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\.jpg$")
+
+_last_capture_failure_time: float = 0.0
+_FAILURE_BACKOFF_SEC: float = 600.0  # 10 minutes
+
+
+def capture_frame(config: Config, filename: str) -> Path | None:
+    """Capture a single JPEG from the USB camera to captures/{filename}.
+
     Returns the saved path or None.
     """
     global _active_cap
 
     config.captures_dir.mkdir(parents=True, exist_ok=True)
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    target_name = filename or f"{today_str}.jpg"
-    target_path = config.captures_dir / target_name
+    target_path = config.captures_dir / filename
 
     with _CAMERA_LOCK:
         # Mock mode fallback
@@ -137,26 +142,44 @@ def capture_frame(config: Config, filename: str | None = None) -> Path | None:
             return None
 
 
-def check_and_take_daily_capture(config: Config) -> Path | None:
+def check_and_take_daily_capture(
+    config: Config,
+    now: datetime | None = None,
+) -> Path | None:
     """Check if the scheduled daily timelapse photo has been taken today.
 
     If current hour/minute matches or exceeds configured time and today's
     photo does not exist yet, take it.
+    Backs off for 10 minutes on failure.
     """
-    now = datetime.now()
-    today_str = now.strftime("%Y-%m-%d")
+    global _last_capture_failure_time
+
+    curr_now = now or datetime.now()
+    today_str = curr_now.strftime("%Y-%m-%d")
     target_path = config.captures_dir / f"{today_str}.jpg"
 
     if target_path.exists():
         # Already snapped today's timelapse photo
         return None
 
+    # Check failure backoff
+    curr_time = time.time()
+    if (curr_time - _last_capture_failure_time) < _FAILURE_BACKOFF_SEC:
+        return None
+
     # Check if we have passed the scheduled time of day
-    if now.hour > config.daily_capture_hour or (
-        now.hour == config.daily_capture_hour and now.minute >= config.daily_capture_minute
+    if curr_now.hour > config.daily_capture_hour or (
+        curr_now.hour == config.daily_capture_hour and curr_now.minute >= config.daily_capture_minute
     ):
         logger.info("⏰ Time for daily timelapse photo (%s)", today_str)
-        return capture_frame(config, filename=f"{today_str}.jpg")
+        result = capture_frame(config, filename=f"{today_str}.jpg")
+        if result is None:
+            _last_capture_failure_time = curr_time
+            logger.warning(
+                "Daily capture failed; backing off for %d seconds",
+                int(_FAILURE_BACKOFF_SEC),
+            )
+        return result
 
     return None
 
@@ -253,8 +276,10 @@ def list_photos(config: Config) -> list[dict[str, str]]:
         return []
 
     photos = []
-    # Match YYYY-MM-DD.jpg
+    # Match YYYY-MM-DD.jpg strictly
     for f in sorted(config.captures_dir.glob("*.jpg")):
+        if not _DAILY_PHOTO_RE.match(f.name):
+            continue
         date_str = f.stem
         mtime = int(f.stat().st_mtime)
         photos.append({

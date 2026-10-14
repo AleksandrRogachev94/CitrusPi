@@ -25,32 +25,22 @@ class AlertRule:
     cooldown_sec: float
     critical: bool = False
     breach_count: int = 0
-    _last_sent: float | None = None
+    last_sent: float | None = None
     is_active: bool = False
-
-    @property
-    def last_sent(self) -> float | None:
-        return self._last_sent
-
-    @last_sent.setter
-    def last_sent(self, value: float | None) -> None:
-        self._last_sent = value
-
-    @property
-    def active(self) -> bool:
-        return self.is_active
-
-    @active.setter
-    def active(self, value: bool) -> None:
-        self.is_active = value
 
 
 class AlertManager:
     """Evaluates telemetry readings against alert rules and dispatches ntfy & heartbeats."""
 
-    def __init__(self, config: Config, clock: Callable[[], float] = time.time) -> None:
+    def __init__(
+        self,
+        config: Config,
+        clock: Callable[[], float] = time.time,
+        notify: Callable[[str, str, str, str], bool] | None = None,
+    ) -> None:
         self.config = config
         self.clock = clock
+        self._notify = notify or self.send_ntfy
         self.rules: dict[str, AlertRule] = {
             "canopy_offline": AlertRule(
                 name="canopy_offline",
@@ -114,16 +104,18 @@ class AlertManager:
             logger.warning("Failed to send ntfy alert: %s", e)
             return False
 
-    def send_heartbeat(self) -> None:
-        """Send a GET request to heartbeat_url if configured. Swallows exceptions."""
+    def send_heartbeat(self) -> bool:
+        """Send a GET request to heartbeat_url if configured. Returns True on success, False on failure."""
         if not self.config.heartbeat_url:
-            return
+            return False
 
         try:
             resp = httpx.get(self.config.heartbeat_url, timeout=3.0)
             resp.raise_for_status()
+            return True
         except Exception as e:
             logger.warning("Failed to send heartbeat: %s", e)
+            return False
 
     def _evaluate_rule(
         self,
@@ -135,33 +127,34 @@ class AlertManager:
         recovery_msg: str,
     ) -> None:
         """Update consecutive debouncing, active state, and dispatch notifications."""
+        tag = "warning" if rule.critical else "lemon"
         if rule.is_active:
             if is_recovered:
-                self.send_ntfy(
-                    title=f"Resolved: {rule.title}",
-                    message=recovery_msg,
-                    priority="default",
-                    tags="white_check_mark",
+                self._notify(
+                    f"Resolved: {rule.title}",
+                    recovery_msg,
+                    "default",
+                    "white_check_mark",
                 )
                 rule.is_active = False
                 rule.breach_count = 0
                 if rule.critical:
-                    rule._last_sent = None
+                    rule.last_sent = None
             elif is_breached:
                 rule.breach_count += 1
                 now = self.clock()
-                cooldown_elapsed = (rule._last_sent is None) or (
-                    (now - rule._last_sent) >= rule.cooldown_sec
+                cooldown_elapsed = (rule.last_sent is None) or (
+                    (now - rule.last_sent) >= rule.cooldown_sec
                 )
                 if rule.breach_count >= self.config.alert_debounce_count and cooldown_elapsed:
-                    sent = self.send_ntfy(
-                        title=rule.title,
-                        message=breach_msg,
-                        priority=rule.priority,
-                        tags="lemon",
+                    sent = self._notify(
+                        rule.title,
+                        breach_msg,
+                        rule.priority,
+                        tag,
                     )
                     if sent:
-                        rule._last_sent = now
+                        rule.last_sent = now
             else:
                 # Inside hysteresis band: while active and not recovered, changes nothing
                 pass
@@ -169,18 +162,18 @@ class AlertManager:
             if is_breached:
                 rule.breach_count += 1
                 now = self.clock()
-                cooldown_elapsed = (rule._last_sent is None) or (
-                    (now - rule._last_sent) >= rule.cooldown_sec
+                cooldown_elapsed = (rule.last_sent is None) or (
+                    (now - rule.last_sent) >= rule.cooldown_sec
                 )
                 if rule.breach_count >= self.config.alert_debounce_count and cooldown_elapsed:
-                    sent = self.send_ntfy(
-                        title=rule.title,
-                        message=breach_msg,
-                        priority=rule.priority,
-                        tags="lemon",
+                    sent = self._notify(
+                        rule.title,
+                        breach_msg,
+                        rule.priority,
+                        tag,
                     )
                     if sent:
-                        rule._last_sent = now
+                        rule.last_sent = now
                         rule.is_active = True
             else:
                 # Strictly consecutive debounce: non-breached reading resets counter
@@ -188,7 +181,7 @@ class AlertManager:
 
     def evaluate(self, reading: Any) -> None:
         """Evaluate a reading against all rules."""
-        temp_f = getattr(reading, "temp_f", None) if not isinstance(reading, dict) else reading.get("temp_f")
+        temp_f = getattr(reading, "temp_f", None)
         if temp_f is not None:
             try:
                 temp_f = float(temp_f)

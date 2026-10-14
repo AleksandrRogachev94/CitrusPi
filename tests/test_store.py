@@ -16,9 +16,9 @@ def test_migrations_applied(tmp_path: Path) -> None:
     assert migrations[3]["version"] == 4
 
 
-def test_insert_dict_and_latest(tmp_path: Path) -> None:
+def test_insert_and_latest(tmp_path: Path) -> None:
     store = Store(tmp_path)
-    store.insert({"temp_c": 15.5, "humidity": 65.0, "root_temp_c": 13.0})
+    store.insert(Reading.create(temp_c=15.5, humidity=65.0, root_temp_c=13.0))
 
     latest = store.latest()
     assert latest is not None
@@ -98,6 +98,32 @@ def test_daily_summary(tmp_path: Path) -> None:
     assert summary["root_temp_max_f"] == 59.0
     assert summary["hum_min"] == 50.0
     assert summary["hum_max"] == 70.0
+
+
+def test_summary_last_hours(tmp_path: Path) -> None:
+    store = Store(tmp_path)
+    store.insert(
+        Reading.create(
+            temp_c=12.0,
+            humidity=55.0,
+            root_temp_c=14.0,
+        )
+    )
+    store.insert(
+        Reading.create(
+            temp_c=22.0,
+            humidity=65.0,
+            root_temp_c=16.0,
+        )
+    )
+
+    summary = store.summary_last_hours(hours=24)
+    assert summary["sample_count"] == 2
+    assert summary["temp_min"] == 12.0
+    assert summary["temp_max"] == 22.0
+    assert summary["temp_avg"] == 17.0
+    assert summary["temp_min_f"] == 53.6
+    assert summary["temp_max_f"] == 71.6
 
 
 def test_save_and_latest_daily_report(tmp_path: Path) -> None:

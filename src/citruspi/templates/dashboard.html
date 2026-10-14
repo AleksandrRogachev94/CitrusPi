@@ -24,9 +24,6 @@
                 <button type="button" id="toggle-stream-btn" class="btn-secondary" onclick="toggleStream()">
                     ▶ Live Stream
                 </button>
-                <button type="button" hx-post="/api/capture" hx-swap="none" hx-on::after-request="location.reload()">
-                    📸 Snap Now
-                </button>
             </div>
         </div>
 
@@ -45,7 +42,7 @@
                 <div id="camera-empty" class="camera-empty-state">
                     <span class="empty-icon">📷</span>
                     <span>No daily photo captured yet.</span>
-                    <span class="muted small">Click "📸 Snap Now" or "▶ Live Stream"</span>
+                    <span class="muted small">Click "▶ Live Stream" to view camera feed</span>
                 </div>
                 <div id="camera-caption" class="camera-caption" style="display:none;"></div>
             {% endif %}
@@ -172,7 +169,7 @@ function updateRangeUI(hours) {
         const btnHours = parseInt(btn.getAttribute('data-hours'), 10);
         btn.classList.toggle('active', btnHours === hours);
     });
-    const badge = document.getElementById('thermal-range-badge') || document.getElementById('soil-range-badge');
+    const badge = document.getElementById('thermal-range-badge');
     if (badge) {
         const labels = { 24: '24h', 72: '3d', 168: '7d', 336: '14d', 720: '30d' };
         badge.textContent = `${labels[hours] || hours + 'h'} History`;
@@ -304,7 +301,7 @@ async function loadCharts(hours = currentRangeHours) {
     }
 
     // 2. Thermal Balance (Canopy vs. Root Zone) Chart
-    const tCanvas = document.getElementById('thermalChart') || document.getElementById('soilChart');
+    const tCanvas = document.getElementById('thermalChart');
     if (tCanvas) {
         if (thermalChartInstance) thermalChartInstance.destroy();
         thermalChartInstance = new Chart(tCanvas.getContext('2d'), {

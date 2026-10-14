@@ -45,6 +45,22 @@ echo "==> Installing Python dependencies..."
 pip install --upgrade pip
 pip install -e .
 
+# 5. Download offline web vendor assets if not present
+VENDOR_DIR="$SCRIPT_DIR/src/citruspi/static/vendor"
+mkdir -p "$VENDOR_DIR"
+if [ ! -f "$VENDOR_DIR/htmx.min.js" ]; then
+    echo "==> Downloading offline vendor asset: htmx.min.js..."
+    curl -fsSL https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js -o "$VENDOR_DIR/htmx.min.js" || true
+fi
+if [ ! -f "$VENDOR_DIR/chart.umd.min.js" ]; then
+    echo "==> Downloading offline vendor asset: chart.umd.min.js..."
+    curl -fsSL https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js -o "$VENDOR_DIR/chart.umd.min.js" || true
+fi
+if [ ! -f "$VENDOR_DIR/chartjs-adapter-date-fns.bundle.min.js" ]; then
+    echo "==> Downloading offline vendor asset: chartjs-adapter-date-fns.bundle.min.js..."
+    curl -fsSL https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js -o "$VENDOR_DIR/chartjs-adapter-date-fns.bundle.min.js" || true
+fi
+
 # 5. Install & start systemd service (dynamically configure user and path)
 CURRENT_USER="$(id -un)"
 echo "==> Configuring systemd service for user '$CURRENT_USER' in '$SCRIPT_DIR'..."
@@ -59,9 +75,20 @@ sudo systemctl daemon-reload
 sudo systemctl enable citruspi
 sudo systemctl restart citruspi
 
+# Secure config.yaml permissions if it exists
+if [ -f config.yaml ]; then
+    chmod 600 config.yaml
+fi
+
 echo ""
 echo "🍊 CitrusPi setup complete!"
 echo "Dashboard is running at: http://$(hostname -I | awk '{print $1}') (or http://citruspi.local)"
+echo ""
+echo "⚠️  REBOOT REQUIRED: 1-Wire kernel overlay requires a reboot to detect the DS18B20 probe!"
+echo "    Run: sudo reboot"
+echo ""
+echo "🕒 TIMEZONE CHECK: Ensure the Pi system timezone matches your local time (photoperiod schedule):"
+echo "    Run: sudo timedatectl set-timezone America/New_York  # (or your local timezone)"
 echo ""
 echo "Helpful verification commands:"
 echo "  - Check service status:   sudo systemctl status citruspi"

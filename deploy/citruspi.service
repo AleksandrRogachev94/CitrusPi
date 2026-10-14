@@ -8,8 +8,8 @@ Type=simple
 User=pi
 WorkingDirectory=/home/pi/citruspi
 ExecStart=/home/pi/citruspi/.venv/bin/python -m citruspi
-Restart=on-failure
-RestartSec=30
+Restart=always
+RestartSec=10
 StandardOutput=journal
 StandardError=journal
 # Allow binding to privileged ports (< 1024) such as port 80 as non-root user

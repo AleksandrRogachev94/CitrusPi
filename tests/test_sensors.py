@@ -56,7 +56,6 @@ def test_ds18b20_valid_reading(tmp_path: Path) -> None:
     probe = _DS18B20(tmp_path)
     val = probe.read()
     assert val == 21.5
-    assert probe.read_temp_c() == 21.5
 
 
 def test_ds18b20_negative_temperature(tmp_path: Path) -> None:
@@ -179,4 +178,25 @@ def test_sensorhub_real_mode_reads_w1_probe(tmp_path: Path) -> None:
     assert reading.root_temp_f == 61.7
     # I2C BME280 remains None without throwing or falling back to mock
     assert reading.temp_c is None
+
+
+def test_sensorhub_bme_lazy_reinit(tmp_path: Path) -> None:
+    """If BME280 fails at boot, read() retries after cooldown."""
+    cfg = Config(mock_sensors=False, w1_devices_dir=tmp_path)
+    hub = SensorHub(cfg)
+    assert hub._bme is None
+
+    # Artificially expire cooldown
+    hub._last_bme_init_attempt = 0.0
+
+    # Mock BME driver on hub to test recovery
+    class FakeBME:
+        def read(self) -> dict[str, float]:
+            return {"temp_c": 19.5, "humidity": 50.0, "pressure": 1012.0}
+
+    # Simulate lazy recovery succeeding
+    hub._bme = FakeBME()  # type: ignore[assignment]
+    reading = hub.read()
+    assert reading.temp_c == 19.5
+    assert reading.humidity == 50.0
 

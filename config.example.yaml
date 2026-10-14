@@ -51,7 +51,7 @@ alert_debounce_count: 3
 # ai_api_key can also be set via CITRUSPI_AI_API_KEY env var.
 ai_enabled: false
 ai_api_key: ""
-ai_model: "gemini-3.5-flash"
+ai_model: "gemini-3.8-flash"
 # Must match the camera framing
 plant_layout: "Left to right: Kishu A, Kishu B, Meyer, Sumo"
 

@@ -90,7 +90,7 @@ def main() -> None:
             message="This is a test notification from CitrusPi.",
             priority="urgent",
         )
-        alerts.send_heartbeat()
+        hb_ok = alerts.send_heartbeat()
 
         if ntfy_ok:
             print("✓ ntfy test alert sent successfully")
@@ -98,100 +98,54 @@ def main() -> None:
             print("✗ ntfy test alert failed (check topic / network)")
 
         if config.heartbeat_url:
-            print("✓ Heartbeat ping dispatched")
+            if hb_ok:
+                print("✓ Heartbeat ping sent successfully")
+            else:
+                print("✗ Heartbeat ping failed (check URL / network)")
         else:
             print("ℹ No heartbeat_url configured")
 
-        sys.exit(0 if ntfy_ok else 1)
+        all_ok = ntfy_ok and (hb_ok if config.heartbeat_url else True)
+        sys.exit(0 if all_ok else 1)
         return
 
-    from citruspi import camera
+    import socket
+
+    from citruspi.runner import run_daily_loop, run_sensor_loop
     from citruspi.sensors import SensorHub
     from citruspi.store import Store
     from citruspi.web import create_app
 
     store = Store(config.data_dir)
     sensors = SensorHub(config)
-    app = create_app(config, store, sensors)
+    app = create_app(config, store, sensors, alerts=alerts)
 
     # Startup notification
     try:
+        hostname = socket.gethostname()
         alerts.send_ntfy(
             title="CitrusPi Online",
-            message=f"CitrusPi monitor is online (http://{config.host}:{config.port}).",
+            message=f"CitrusPi monitor is online on {hostname} (http://{hostname}.local:{config.port}).",
             priority="default",
+            tags="lemon",
         )
     except Exception:
         logger.exception("Startup alert error")
 
     stop_event = threading.Event()
 
-    # ── Background Sensor Polling (every minute by default) ───────────
-    def sensor_loop() -> None:
-        logger.info(
-            "📊 Sensor polling active (every %ds, mock=%s)",
-            config.poll_interval_sec,
-            sensors.is_mock,
-        )
-        # Take initial reading immediately on startup
-        try:
-            initial = sensors.read()
-            store.insert(initial)
-            logger.info("📊 Startup reading: %s", initial)
-            try:
-                alerts.evaluate(initial)
-            except Exception:
-                logger.exception("Alert evaluation error on initial reading")
-            try:
-                alerts.send_heartbeat()
-            except Exception:
-                logger.exception("Heartbeat error on initial reading")
-        except Exception:
-            logger.exception("Initial sensor reading failed")
-
-        while not stop_event.is_set():
-            stop_event.wait(config.poll_interval_sec)
-            if stop_event.is_set():
-                break
-            try:
-                reading = sensors.read()
-                store.insert(reading)
-                logger.debug("📊 Poll: %s", reading)
-                try:
-                    alerts.evaluate(reading)
-                except Exception:
-                    logger.exception("Alert evaluation error")
-                try:
-                    alerts.send_heartbeat()
-                except Exception:
-                    logger.exception("Heartbeat error")
-            except Exception:
-                logger.exception("Sensor poll error")
-
-    # ── Background Daily Photo Check ──────────────────────────────────
-    def daily_photo_loop() -> None:
-        logger.info(
-            "📸 Daily timelapse photo scheduler active (scheduled for %02d:%02d)",
-            config.daily_capture_hour,
-            config.daily_capture_minute,
-        )
-        from citruspi.analyzer import run_daily_analysis
-
-        while not stop_event.is_set():
-            try:
-                photo_path = camera.check_and_take_daily_capture(config)
-                if photo_path:
-                    try:
-                        run_daily_analysis(config, store, photo_path)
-                    except Exception:
-                        logger.exception("Daily AI analysis error")
-            except Exception:
-                logger.exception("Daily photo check error")
-            # Check every 30 seconds
-            stop_event.wait(30)
-
-    sensor_thread = threading.Thread(target=sensor_loop, daemon=True, name="sensors")
-    photo_thread = threading.Thread(target=daily_photo_loop, daemon=True, name="daily_photo")
+    sensor_thread = threading.Thread(
+        target=run_sensor_loop,
+        args=(config, sensors, store, alerts, stop_event),
+        daemon=True,
+        name="sensors",
+    )
+    photo_thread = threading.Thread(
+        target=run_daily_loop,
+        args=(config, store, stop_event),
+        daemon=True,
+        name="daily_photo",
+    )
     sensor_thread.start()
     photo_thread.start()
 

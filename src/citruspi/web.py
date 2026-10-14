@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from citruspi import camera
+from citruspi.alerts import AlertManager
 from citruspi.config import Config
 from citruspi.sensors import SensorHub
 from citruspi.store import Store
@@ -22,7 +23,12 @@ _TEMPLATES_DIR = Path(__file__).parent / "templates"
 _STATIC_DIR = Path(__file__).parent / "static"
 
 
-def create_app(config: Config, store: Store, sensors: SensorHub) -> FastAPI:
+def create_app(
+    config: Config,
+    store: Store,
+    sensors: SensorHub,
+    alerts: AlertManager | None = None,
+) -> FastAPI:
     """Build and return the FastAPI application."""
 
     app = FastAPI(title="CitrusPi", version="0.1.0")
@@ -99,18 +105,23 @@ def create_app(config: Config, store: Store, sensors: SensorHub) -> FastAPI:
 
     @app.post("/api/capture")
     def api_capture() -> dict[str, Any]:
-        """Manually trigger a photo capture."""
-        path = camera.capture_frame(config)
+        """Manually trigger a test photo capture saved to manual.jpg."""
+        path = camera.capture_frame(config, filename="manual.jpg")
         if path:
             return {"status": "ok", "path": str(path), "url": f"/captures/{path.name}"}
         return {"status": "error", "message": "capture failed"}
 
     @app.post("/api/poll")
     def api_poll() -> dict[str, Any]:
-        """Manually poll sensors and store in SQLite."""
-        reading = sensors.read()
-        store.insert(reading)
-        return reading.to_dict() if hasattr(reading, "to_dict") else reading
+        """Manually poll sensors, store in SQLite, and evaluate alerts."""
+        if alerts is not None:
+            from citruspi.runner import sensor_tick
+
+            reading = sensor_tick(sensors, store, alerts)
+        else:
+            reading = sensors.read()
+            store.insert(reading)
+        return reading.to_dict()
 
     # ── Fragments for htmx ────────────────────────────────────────────
 
