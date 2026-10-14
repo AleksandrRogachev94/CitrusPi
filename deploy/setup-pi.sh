@@ -3,9 +3,15 @@ set -e
 
 echo "🍊 Setting up CitrusPi on Raspberry Pi..."
 
-# 1. Enable I2C interface via raspi-config
+# 1. Enable hardware interfaces via raspi-config
 echo "==> Enabling I2C hardware interface..."
 sudo raspi-config nonint do_i2c 0 || true
+
+# Enable 1-Wire interface for DS18B20 root-zone temperature probe.
+# Note: Probe wires to GPIO4 (Pin 7) with a 4.7kΩ pull-up between data and 3.3V (Pin 1).
+# A reboot is needed after enabling 1-Wire for the w1-gpio kernel overlay to activate.
+echo "==> Enabling 1-Wire hardware interface (DS18B20)..."
+sudo raspi-config nonint do_onewire 0 || true
 
 # 2. System dependencies
 # Note: Installing python3-opencv via apt provides pre-compiled ARM binaries.
@@ -61,5 +67,6 @@ echo "Helpful verification commands:"
 echo "  - Check service status:   sudo systemctl status citruspi"
 echo "  - View live logs:         sudo journalctl -u citruspi -f"
 echo "  - Check I2C sensors:      sudo i2cdetect -y 1"
+echo "  - Check 1-Wire probe:     ls /sys/bus/w1/devices/ (look for 28-*)"
 echo "  - Check USB camera:       v4l2-ctl --list-devices"
 echo "  - Check RAM logging:      systemctl status log2ram"

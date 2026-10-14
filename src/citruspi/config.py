@@ -17,7 +17,7 @@ class Config:
     # ── Sensor polling ────────────────────────────────────────────────
     poll_interval_sec: int = 60  # 1 min default for high resolution
     bme280_address: int = 0x76
-    soil_moisture_address: int = 0x36
+    w1_devices_dir: Path = Path("/sys/bus/w1/devices")
     mock_sensors: bool = False  # auto-detected if hardware unavailable
 
     # ── Camera & Photoperiod ──────────────────────────────────────────
@@ -41,6 +41,14 @@ class Config:
     host: str = "0.0.0.0"
     port: int = 80
     log_level: str = "info"
+
+    def __post_init__(self) -> None:
+        if isinstance(self.w1_devices_dir, str):
+            self.w1_devices_dir = Path(self.w1_devices_dir)
+        if isinstance(self.data_dir, str):
+            self.data_dir = Path(self.data_dir)
+        if isinstance(self.captures_dir, str):
+            self.captures_dir = Path(self.captures_dir)
 
 
 def load_config(path: str | Path | None = None) -> Config:
@@ -66,7 +74,7 @@ def load_config(path: str | Path | None = None) -> Config:
     logger = logging.getLogger(__name__)
 
     # Convert paths
-    for key in ("data_dir", "captures_dir"):
+    for key in ("data_dir", "captures_dir", "w1_devices_dir"):
         if key in raw and raw[key] is not None:
             raw[key] = Path(raw[key])
 

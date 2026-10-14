@@ -26,9 +26,6 @@
                 {% if reading and reading.temp_c is not none %}
                     {{ "%.1f"|format(reading.temp_c) }}°C
                 {% endif %}
-                {% if reading and reading.root_temp_f is not none %}
-                    · Root: {{ "%.1f"|format(reading.root_temp_f) }}°F
-                {% endif %}
             </div>
         </div>
     </div>
@@ -57,19 +54,25 @@
         </div>
     </div>
 
-    <!-- Soil Moisture Card -->
-    <div class="card sensor-card soil">
-        <div class="card-icon">🌱</div>
+    <!-- Root Zone Temp Card -->
+    <div class="card sensor-card root">
+        <div class="card-icon">🪴</div>
         <div class="card-body">
-            <div class="card-label">Substrate Moisture</div>
+            <div class="card-label">Root Zone Temp</div>
             <div class="card-value">
-                {% if reading and reading.soil_moisture is not none %}
-                    {{ reading.soil_moisture }}<span class="unit">raw</span>
+                {% if reading and reading.root_temp_f is not none %}
+                    {{ "%.1f"|format(reading.root_temp_f) }}<span class="unit">°F</span>
                 {% else %}
                     <span class="muted">—</span>
                 {% endif %}
             </div>
-            <div class="card-sub">Capacitive (higher = wetter)</div>
+            <div class="card-sub">
+                {% if reading and reading.root_temp_c is not none %}
+                    {{ "%.1f"|format(reading.root_temp_c) }}°C{% if reading.temp_f is not none and reading.root_temp_f is not none %} · ΔT: {{ "%+.1f"|format(reading.temp_f - reading.root_temp_f) }}°F{% endif %}
+                {% else %}
+                    Probe offline
+                {% endif %}
+            </div>
         </div>
     </div>
 </section>

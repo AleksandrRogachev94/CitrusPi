@@ -29,20 +29,24 @@ class Reading:
         cls,
         *,
         temp_c: float | None = None,
+        temp_f: float | None = None,
         humidity: float | None = None,
         pressure: float | None = None,
         soil_moisture: int | None = None,
         root_temp_c: float | None = None,
+        root_temp_f: float | None = None,
         light_lux: float | None = None,
         vpd_kpa: float | None = None,
         timestamp: str | None = None,
     ) -> Reading:
-        """Create a reading, auto-computing temp_f, VPD, and UTC timestamp if omitted."""
+        """Create a reading, auto-computing temp_f, root_temp_f, VPD, and UTC timestamp if omitted."""
         ts = timestamp or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        temp_f = round(temp_c * 9.0 / 5.0 + 32.0, 2) if temp_c is not None else None
-        root_temp_f = (
-            round(root_temp_c * 9.0 / 5.0 + 32.0, 2) if root_temp_c is not None else None
-        )
+        calc_temp_f = temp_f
+        if calc_temp_f is None and temp_c is not None:
+            calc_temp_f = round(temp_c * 9.0 / 5.0 + 32.0, 2)
+        calc_root_f = root_temp_f
+        if calc_root_f is None and root_temp_c is not None:
+            calc_root_f = round(root_temp_c * 9.0 / 5.0 + 32.0, 2)
 
         # Compute Vapor Pressure Deficit (VPD in kPa) using Magnus-Tetens formula:
         # e_s = 0.61078 * exp((17.27 * T_c) / (T_c + 237.3))
@@ -58,12 +62,12 @@ class Reading:
         return cls(
             timestamp=ts,
             temp_c=round(temp_c, 2) if temp_c is not None else None,
-            temp_f=temp_f,
+            temp_f=calc_temp_f,
             humidity=round(humidity, 2) if humidity is not None else None,
             pressure=round(pressure, 2) if pressure is not None else None,
             soil_moisture=soil_moisture,
             root_temp_c=round(root_temp_c, 2) if root_temp_c is not None else None,
-            root_temp_f=root_temp_f,
+            root_temp_f=calc_root_f,
             light_lux=round(light_lux, 2) if light_lux is not None else None,
             vpd_kpa=calc_vpd,
         )

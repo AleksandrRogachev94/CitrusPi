@@ -17,13 +17,16 @@ def test_migrations_applied(tmp_path: Path) -> None:
 
 def test_insert_dict_and_latest(tmp_path: Path) -> None:
     store = Store(tmp_path)
-    store.insert({"temp_c": 15.5, "humidity": 65.0, "soil_moisture": 700})
+    store.insert({"temp_c": 15.5, "humidity": 65.0, "root_temp_c": 13.0})
 
     latest = store.latest()
     assert latest is not None
     assert latest["temp_c"] == 15.5
     assert latest["temp_f"] == 59.9
-    assert latest["soil_moisture"] == 700
+    assert latest["root_temp_c"] == 13.0
+    assert latest["root_temp_f"] == 55.4
+    assert latest["vpd_kpa"] is not None
+
 
 
 def test_insert_reading_model(tmp_path: Path) -> None:

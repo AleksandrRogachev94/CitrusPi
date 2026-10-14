@@ -31,7 +31,7 @@
     --shadow:       0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
 }
 
-* {
+*, *::before, *::after {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
@@ -255,7 +255,8 @@ body {
 /* Card Accents */
 .sensor-card.temp     { border-top: 3px solid var(--orange); }
 .sensor-card.humidity { border-top: 3px solid var(--blue); }
-.sensor-card.soil     { border-top: 3px solid var(--green); }
+.sensor-card.soil,
+.sensor-card.root     { border-top: 3px solid var(--green); }
 
 /* VPD Badges */
 .vpd-badge {

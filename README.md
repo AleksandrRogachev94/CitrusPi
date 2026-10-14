@@ -1,7 +1,7 @@
 # 🍊 CitrusPi
 
 Edge monitor for citrus grow tents. Runs on a Raspberry Pi Zero 2W.
-Logs temperature, humidity, and soil moisture every minute, snaps one daily timelapse photo, offers live camera preview, and serves a web dashboard.
+Logs canopy temperature, humidity, and root-zone temperature every minute, snaps one daily timelapse photo, offers live camera preview, and serves a web dashboard.
 
 ---
 
@@ -18,9 +18,47 @@ rsync -avz --exclude '.venv' . pi@citruspi.local:~/citruspi
 ssh pi@citruspi.local
 cd ~/citruspi && ./deploy/setup-pi.sh
 ```
-*Note: The script automatically enables I2C, installs dependencies, and configures `log2ram` to protect your microSD card from write wear.*
+*Note: The script automatically enables I2C and 1-Wire, installs dependencies, and configures `log2ram` to protect your microSD card from write wear.*
 
 Done. Open **http://citruspi.local** in your browser (no port needed).
+
+---
+
+## Development & Deployment Workflow (Git Push / Pull)
+
+The recommended workflow is **writing code on your Mac and running everything live on the Raspberry Pi**:
+
+1. **Hardware Parity:** The Pi physically hosts the I2C bus (`0x76` BME280), 1-Wire bus (DS18B20 probe on GPIO4 with 4.7kΩ pull-up to 3.3V), and USB camera (`/dev/video0`). Testing on the Pi guarantees real-world sensor communication and thermal/timing behavior.
+2. **Zero Mac Clutter:** No need to install OpenCV, system packages, or manage Python 3.11 virtualenvs on your Mac.
+3. **Seamless Deployment:** A single SSH command pulls your changes and restarts the systemd service.
+
+### Quick Deploy Loop
+
+1. Edit code on your Mac and push to your repo:
+   ```bash
+   git add -A
+   git commit -m "Update feature"
+   git push
+   ```
+
+2. Pull and restart on the Pi in one shot:
+   ```bash
+   ssh pi@citruspi.local "cd ~/citruspi && git pull && sudo systemctl restart citruspi"
+   ```
+
+3. (Optional) Stream live logs to verify:
+   ```bash
+   ssh pi@citruspi.local "sudo journalctl -u citruspi -f"
+   ```
+
+### Optional: Local Preview on Mac (Mock Mode)
+
+If you ever want to test UI, styling, or API responses locally on your Mac without pushing to the Pi:
+```bash
+python -m citruspi --mock
+```
+*(Runs with simulated sensor readings and synthetic camera frames. If run as non-root on macOS, it automatically falls back from port 80 to port 8000).*
+
 
 ---
 
@@ -62,8 +100,11 @@ port: 80                  # Port 80 allows direct http://citruspi.local
 # View live logs
 sudo journalctl -u citruspi -f
 
-# Verify I2C sensors (0x76 = BME280, 0x36 = Soil moisture)
+# Verify I2C sensors (0x76 = BME280)
 sudo i2cdetect -y 1
+
+# Verify 1-Wire DS18B20 probe
+ls /sys/bus/w1/devices/
 
 # Verify USB camera
 v4l2-ctl --list-devices

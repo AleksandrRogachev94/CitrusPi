@@ -88,6 +88,22 @@ def main() -> None:
     photo_thread.start()
 
     # ── Web Server ────────────────────────────────────────────────────
+    import socket
+
+    if config.port < 1024:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                s.bind((config.host, config.port))
+        except PermissionError:
+            logger.warning(
+                "Port %d requires root/CAP_NET_BIND_SERVICE — falling back to port 8000 for local dev",
+                config.port,
+            )
+            config.port = 8000
+        except OSError:
+            pass
+
     logger.info("")
     logger.info("🍊 CitrusPi running at http://%s:%d", config.host, config.port)
     logger.info("   Daily photo time: %02d:%02d", config.daily_capture_hour, config.daily_capture_minute)

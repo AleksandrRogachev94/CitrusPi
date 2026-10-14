@@ -1,13 +1,14 @@
-"""Sensor hub — reads BME280 + capacitive soil moisture.
+"""Sensor hub — reads BME280 + DS18B20 root-zone temperature probe.
 
-Auto-falls back to realistic mock data when not running on a Pi,
-so the dashboard works beautifully during development on any machine.
+When mock_sensors is enabled in Config, realistic mock data is generated
+for local UI development. Real mode strictly queries physical hardware.
 """
 
 from __future__ import annotations
 
 import logging
 import math
+from pathlib import Path
 import random
 import threading
 import time
@@ -30,8 +31,8 @@ class _MockSensors:
         elapsed = time.time() - self._start
         hour_angle = (elapsed / 3600) * (2 * math.pi / 24)
 
-        # Simulate: warmer during lights-on, cooler at night
-        base_c = 15.0 + 3.0 * math.sin(hour_angle)  # 12–18 °C
+        # Simulate canopy: warmer during lights-on, cooler at night (12–18 °C)
+        base_c = 15.0 + 3.0 * math.sin(hour_angle)
         temp_c = round(base_c + random.gauss(0, 0.3), 2)
         temp_f = round(temp_c * 9 / 5 + 32, 2)
 
@@ -42,17 +43,20 @@ class _MockSensors:
         # Pressure — slow barometric drift
         pressure = round(1013.25 + 2.0 * math.sin(elapsed / 7200) + random.gauss(0, 0.2), 2)
 
-        # Soil moisture — slow dry-down with occasional "watering" resets
-        cycle = (elapsed % 86400) / 86400  # daily cycle
-        soil = int(800 - 200 * cycle + random.gauss(0, 10))
-        soil = max(300, min(900, soil))
+        # Root zone temperature — lagged and damped by substrate thermal mass
+        # Damped amplitude (1.2°C vs 3.0°C) and ~3 hour thermal phase lag (3 * pi / 12)
+        root_hour_angle = hour_angle - (3.0 * math.pi / 12)
+        root_base_c = 14.5 + 1.2 * math.sin(root_hour_angle)
+        root_temp_c = round(root_base_c + random.gauss(0, 0.1), 2)
+        root_temp_f = round(root_temp_c * 9 / 5 + 32, 2)
 
         return {
             "temp_c": temp_c,
             "temp_f": temp_f,
             "humidity": humidity,
             "pressure": pressure,
-            "soil_moisture": soil,
+            "root_temp_c": root_temp_c,
+            "root_temp_f": root_temp_f,
         }
 
 
@@ -158,40 +162,79 @@ class _BME280:
         }
 
 
-class _SoilMoisture:
-    """Adafruit STEMMA / Seesaw capacitive soil sensor."""
+class _DS18B20:
+    """DS18B20 1-Wire temperature probe driver via Linux w1 sysfs."""
 
-    _TOUCH_BASE = 0x0F
-    _TOUCH_OFFSET = 0x10
+    def __init__(self, w1_dir: Path | str = Path("/sys/bus/w1/devices")) -> None:
+        self._w1_dir = Path(w1_dir)
+        self._device_file: Path | None = None
 
-    def __init__(self, bus: Any, address: int) -> None:
-        self._bus = bus
-        self._addr = address
-        # Probe presence on I2C bus; raises OSError if sensor is not connected
-        self._bus.write_i2c_block_data(self._addr, self._TOUCH_BASE, [self._TOUCH_OFFSET])
+    def _find_device(self) -> Path | None:
+        try:
+            if not self._w1_dir.is_dir():
+                return None
+            devices = sorted(self._w1_dir.glob("28-*/w1_slave"))
+            if devices:
+                return devices[0]
+        except OSError:
+            return None
+        return None
 
-    def read_raw(self) -> int:
-        """Read capacitive touch value taking median of 3 samples for glitch filtering."""
-        samples: list[int] = []
-        for _ in range(3):
-            self._bus.write_i2c_block_data(self._addr, self._TOUCH_BASE, [self._TOUCH_OFFSET])
-            time.sleep(0.005)
-            d = self._bus.read_i2c_block_data(self._addr, self._TOUCH_BASE, 2)
-            samples.append((d[0] << 8) | d[1])
-        samples.sort()
-        return samples[1]  # median of 3
+    def read(self) -> float | None:
+        """Read temperature in Celsius from 1-Wire sysfs interface.
+
+        Returns float Celsius, or None on missing probe, CRC error,
+        85000 sentinel, or parse/read failure.
+        """
+        try:
+            if self._device_file is None:
+                self._device_file = self._find_device()
+                if self._device_file is None:
+                    return None
+
+            content = self._device_file.read_text()
+            lines = content.strip().splitlines()
+            if len(lines) < 2:
+                raise ValueError("Malformed w1_slave: less than 2 lines")
+
+            # Line 1 must end with YES
+            if not lines[0].strip().endswith("YES"):
+                if lines[0].strip().endswith("NO"):
+                    # CRC error on valid w1 device
+                    return None
+                raise ValueError("Malformed w1_slave: line 1 does not end with YES or NO")
+
+            # Parse t=<millidegrees> from line 2
+            if "t=" not in lines[1]:
+                raise ValueError("Malformed w1_slave: missing 't=' token")
+
+            t_str = lines[1].split("t=")[-1].strip()
+            t_raw = int(t_str)
+
+            # 85000 is power-on sentinel (conversion incomplete)
+            if t_raw == 85000:
+                return None
+
+            return round(t_raw / 1000.0, 2)
+        except (OSError, ValueError):
+            self._device_file = None
+            return None
+
+    def read_temp_c(self) -> float | None:
+        """Convenience alias for read()."""
+        return self.read()
 
 
 # ── Public interface ─────────────────────────────────────────────────────────
 
 
 class SensorHub:
-    """Unified interface — real hardware on Pi, mock data everywhere else."""
+    """Unified interface — real hardware on Pi, mock data only when explicitly enabled."""
 
     def __init__(self, config: Config) -> None:
         self._mock: _MockSensors | None = None
         self._bme: _BME280 | None = None
-        self._soil: _SoilMoisture | None = None
+        self._ds18b20: _DS18B20 | None = None
         self._bus: Any = None
         self._lock = threading.Lock()
 
@@ -200,31 +243,29 @@ class SensorHub:
             self._mock = _MockSensors()
             return
 
+        # STRICT MOCK RULE: When config.mock_sensors is False, NEVER fall back to mock data.
+        # Initialize BME280 on I2C bus 1
         try:
             import smbus2  # type: ignore[import-untyped]
 
             self._bus = smbus2.SMBus(1)
         except Exception as exc:
-            logger.warning("I2C bus 1 unavailable (%s) — falling back to mock", exc)
-            self._mock = _MockSensors()
-            return
+            logger.warning("I2C bus 1 unavailable (%s)", exc)
+            self._bus = None
 
+        if self._bus is not None:
+            try:
+                self._bme = _BME280(self._bus, config.bme280_address)
+                logger.info("BME280 initialised at 0x%02X", config.bme280_address)
+            except Exception as exc:
+                logger.warning("BME280 unavailable (%s)", exc)
+
+        # Initialize DS18B20 1-Wire temperature probe
         try:
-            self._bme = _BME280(self._bus, config.bme280_address)
-            logger.info("BME280 initialised at 0x%02X", config.bme280_address)
+            self._ds18b20 = _DS18B20(config.w1_devices_dir)
+            logger.info("DS18B20 probe configured at %s", config.w1_devices_dir)
         except Exception as exc:
-            logger.warning("BME280 unavailable (%s)", exc)
-
-        try:
-            self._soil = _SoilMoisture(self._bus, config.soil_moisture_address)
-            logger.info("Soil sensor initialised at 0x%02X", config.soil_moisture_address)
-        except Exception as exc:
-            logger.warning("Soil sensor unavailable (%s)", exc)
-
-        # If nothing real is available on the I2C bus, fall back to mock
-        if self._bme is None and self._soil is None:
-            logger.info("No sensors detected on I2C bus — using mock sensor data")
-            self._mock = _MockSensors()
+            logger.warning("DS18B20 unavailable (%s)", exc)
 
     @property
     def is_mock(self) -> bool:
@@ -238,14 +279,14 @@ class SensorHub:
                 temp_c=raw.get("temp_c"),
                 humidity=raw.get("humidity"),
                 pressure=raw.get("pressure"),
-                soil_moisture=raw.get("soil_moisture"),
+                root_temp_c=raw.get("root_temp_c"),
             )
 
         with self._lock:
             temp_c: float | None = None
             humidity: float | None = None
             pressure: float | None = None
-            soil_moisture: int | None = None
+            root_temp_c: float | None = None
 
             if self._bme:
                 try:
@@ -256,15 +297,15 @@ class SensorHub:
                 except Exception:
                     logger.exception("BME280 read error")
 
-            if self._soil:
+            if self._ds18b20:
                 try:
-                    soil_moisture = self._soil.read_raw()
+                    root_temp_c = self._ds18b20.read()
                 except Exception:
-                    logger.exception("Soil moisture read error")
+                    logger.exception("DS18B20 read error")
 
             return Reading.create(
                 temp_c=temp_c,
                 humidity=humidity,
                 pressure=pressure,
-                soil_moisture=soil_moisture,
+                root_temp_c=root_temp_c,
             )

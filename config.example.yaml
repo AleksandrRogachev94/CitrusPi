@@ -8,10 +8,10 @@ poll_interval_sec: 60
 # BME280 I2C address (0x76 or 0x77)
 bme280_address: 0x76
 
-# Capacitive soil moisture I2C address
-soil_moisture_address: 0x36
+# DS18B20 1-Wire devices directory (default: /sys/bus/w1/devices)
+# w1_devices_dir: "/sys/bus/w1/devices"
 
-# Force mock sensors (auto-fallback if I2C bus not present)
+# Force mock sensors (default false; true runs simulated telemetry)
 mock_sensors: false
 
 # Camera settings

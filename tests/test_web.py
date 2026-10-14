@@ -31,6 +31,7 @@ def test_dashboard_loads(client: TestClient) -> None:
     r = client.get("/")
     assert r.status_code == 200
     assert "CitrusPi" in r.text
+    assert "Thermal Balance" in r.text
 
 
 def test_api_current(client: TestClient) -> None:
@@ -38,6 +39,7 @@ def test_api_current(client: TestClient) -> None:
     assert r.status_code == 200
     data = r.json()
     assert "temp_c" in data
+    assert "root_temp_c" in data
 
 
 def test_api_history(client: TestClient) -> None:
@@ -51,6 +53,7 @@ def test_api_poll(client: TestClient) -> None:
     r = client.post("/api/poll")
     assert r.status_code == 200
     assert "temp_c" in r.json()
+    assert "root_temp_c" in r.json()
 
 
 def test_gallery_loads(client: TestClient) -> None:
@@ -64,3 +67,4 @@ def test_fragments_readings_loads(client: TestClient) -> None:
     assert r.status_code == 200
     assert "Temperature" in r.text
     assert "Humidity" in r.text
+    assert "Root Zone Temp" in r.text

@@ -27,6 +27,18 @@ _active_cap: Any = None
 _active_stream_count: int = 0
 
 
+# Minimal 1x1 valid JPEG fallback if numpy/cv2 are not installed
+_MINIMAL_JPEG = (
+    b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
+    b"\xff\xdb\x00C\x00\x08\x06\x06\x07\x06\x05\x08\x07\x07\x07\t\t\x08\n\x0c"
+    b"\x14\r\x0c\x0b\x0b\x0c\x19\x12\x13\x0f\x14\x1d\x1a\x1f\x1e\x1d\x1a\x1c"
+    b"\x1c $.' \",#\x1c\x1c(7),01444\x1f'9=82<.342\xff\xc0\x00\x0b\x08\x00"
+    b"\x01\x00\x01\x01\x01\x11\x00\xff\xc4\x00\x1f\x00\x00\x01\x05\x01\x01\x01"
+    b"\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x01\x02\x03\x04\x05\x06\x07"
+    b"\x08\t\n\x0b\xff\xda\x00\x08\x01\x01\x00\x00?\x00\xbf\x00\xff\xd9"
+)
+
+
 def _get_placeholder_jpeg(text: str = "CitrusPi Camera Offline") -> bytes:
     """Generate a lightweight placeholder frame if device unavailable."""
     try:
@@ -44,7 +56,7 @@ def _get_placeholder_jpeg(text: str = "CitrusPi Camera Offline") -> bytes:
         _, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 80])
         return buf.tobytes()
     except Exception:
-        return b""
+        return _MINIMAL_JPEG
 
 
 def capture_frame(config: Config, filename: str | None = None) -> Path | None:
@@ -76,7 +88,15 @@ def capture_frame(config: Config, filename: str | None = None) -> Path | None:
 
             # Case A: Live stream is already open — reuse active device handle to avoid V4L2 lock contention
             if _active_cap is not None and _active_cap.isOpened():
+                # Temporarily switch to full resolution for the high-res snapshot
+                _active_cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.capture_width)
+                _active_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.capture_height)
+                for _ in range(4):
+                    _active_cap.read()
                 ret, frame = _active_cap.read()
+                # Restore stream resolution
+                _active_cap.set(cv2.CAP_PROP_FRAME_WIDTH, min(640, config.capture_width))
+                _active_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, min(480, config.capture_height))
                 if not ret or frame is None:
                     logger.warning("Could not read frame from active stream handle")
                     frame = None
@@ -158,25 +178,30 @@ def generate_mjpeg_stream(config: Config) -> Generator[bytes, None, None]:
     except ImportError:
         has_cv2 = False
 
-    if not has_cv2:
-        placeholder = _get_placeholder_jpeg("OpenCV not available")
+    if not has_cv2 or config.mock_sensors:
+        label = "Mock Live Stream (5 FPS)" if config.mock_sensors else "OpenCV not available"
         while True:
+            placeholder = _get_placeholder_jpeg(label)
             yield (
                 b"--frame\r\n"
                 b"Content-Type: image/jpeg\r\n\r\n" + placeholder + b"\r\n"
             )
-            time.sleep(1.0)
+            time.sleep(delay)
 
-    # Open camera with lock and register in _active_cap
     with _CAMERA_LOCK:
         if _active_cap is None or not _active_cap.isOpened():
             _active_cap = cv2.VideoCapture(config.camera_device_index)
             if _active_cap.isOpened():
                 _active_cap.set(cv2.CAP_PROP_FRAME_WIDTH, min(640, config.capture_width))
                 _active_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, min(480, config.capture_height))
-        _active_stream_count += 1
 
-    if _active_cap is None or not _active_cap.isOpened():
+        if _active_cap is None or not _active_cap.isOpened():
+            camera_ok = False
+        else:
+            camera_ok = True
+            _active_stream_count += 1
+
+    if not camera_ok:
         logger.warning("Camera unavailable for live stream")
         placeholder = _get_placeholder_jpeg("Camera device offline")
         while True:

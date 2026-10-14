@@ -132,28 +132,18 @@ class Store:
     def insert(self, reading: Reading | dict[str, Any]) -> None:
         """Insert a sensor reading."""
         if isinstance(reading, dict):
-            # Accept dict for backward compatibility
-            ts = reading.get("timestamp") or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            temp_c = reading.get("temp_c")
-            temp_f = reading.get("temp_f") or (round(temp_c * 9 / 5 + 32, 2) if temp_c is not None else None)
-            humidity = reading.get("humidity")
-            pressure = reading.get("pressure")
-            soil = reading.get("soil_moisture")
-            root_c = reading.get("root_temp_c")
-            root_f = reading.get("root_temp_f")
-            light = reading.get("light_lux")
-            vpd = reading.get("vpd_kpa")
-        else:
-            ts = reading.timestamp
-            temp_c = reading.temp_c
-            temp_f = reading.temp_f
-            humidity = reading.humidity
-            pressure = reading.pressure
-            soil = reading.soil_moisture
-            root_c = reading.root_temp_c
-            root_f = reading.root_temp_f
-            light = reading.light_lux
-            vpd = reading.vpd_kpa
+            reading = Reading.create(
+                temp_c=reading.get("temp_c"),
+                temp_f=reading.get("temp_f"),
+                humidity=reading.get("humidity"),
+                pressure=reading.get("pressure"),
+                soil_moisture=reading.get("soil_moisture"),
+                root_temp_c=reading.get("root_temp_c"),
+                root_temp_f=reading.get("root_temp_f"),
+                light_lux=reading.get("light_lux"),
+                vpd_kpa=reading.get("vpd_kpa"),
+                timestamp=reading.get("timestamp"),
+            )
 
         conn = self._get_conn()
         with conn:
@@ -165,7 +155,18 @@ class Store:
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """,
-                (ts, temp_c, temp_f, humidity, pressure, soil, root_c, root_f, light, vpd),
+                (
+                    reading.timestamp,
+                    reading.temp_c,
+                    reading.temp_f,
+                    reading.humidity,
+                    reading.pressure,
+                    reading.soil_moisture,
+                    reading.root_temp_c,
+                    reading.root_temp_f,
+                    reading.light_lux,
+                    reading.vpd_kpa,
+                ),
             )
 
     # ── Read Operations ───────────────────────────────────────────────────────

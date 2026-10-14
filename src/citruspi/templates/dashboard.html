@@ -71,14 +71,14 @@
             </div>
         </section>
 
-        <!-- Substrate Moisture Chart -->
+        <!-- Thermal Balance (Canopy vs. Root Zone) Chart -->
         <section class="card chart-card">
             <div class="card-header-compact">
-                <h2>🌱 Substrate Dry-Down</h2>
-                <span id="soil-range-badge" class="range-badge">24h History</span>
+                <h2>🌡️ Thermal Balance (Canopy vs. Root Zone)</h2>
+                <span id="thermal-range-badge" class="range-badge">24h History</span>
             </div>
             <div class="chart-wrapper-compact">
-                <canvas id="soilChart"></canvas>
+                <canvas id="thermalChart"></canvas>
             </div>
         </section>
     </div>
@@ -134,7 +134,7 @@ function toggleStream() {
 // ── Chart.js Dual Visualizations (Anchored Scales, Zero Muddy Fills) ─
 // ── Chart.js Dual Visualizations (Anchored Scales, Multi-day Ranges) ─
 let climateChartInstance = null;
-let soilChartInstance = null;
+let thermalChartInstance = null;
 let currentRangeHours = parseInt(localStorage.getItem('citruspi-chart-range') || '24', 10);
 
 function getThemeColors() {
@@ -152,7 +152,7 @@ function updateRangeUI(hours) {
         const btnHours = parseInt(btn.getAttribute('data-hours'), 10);
         btn.classList.toggle('active', btnHours === hours);
     });
-    const badge = document.getElementById('soil-range-badge');
+    const badge = document.getElementById('thermal-range-badge') || document.getElementById('soil-range-badge');
     if (badge) {
         const labels = { 24: '24h', 72: '3d', 168: '7d', 336: '14d', 720: '30d' };
         badge.textContent = `${labels[hours] || hours + 'h'} History`;
@@ -283,20 +283,31 @@ async function loadCharts(hours = currentRangeHours) {
         });
     }
 
-    // 2. Substrate Moisture Chart
-    const sCanvas = document.getElementById('soilChart');
-    if (sCanvas) {
-        if (soilChartInstance) soilChartInstance.destroy();
-        soilChartInstance = new Chart(sCanvas.getContext('2d'), {
+    // 2. Thermal Balance (Canopy vs. Root Zone) Chart
+    const tCanvas = document.getElementById('thermalChart') || document.getElementById('soilChart');
+    if (tCanvas) {
+        if (thermalChartInstance) thermalChartInstance.destroy();
+        thermalChartInstance = new Chart(tCanvas.getContext('2d'), {
             type: 'line',
             data: {
                 datasets: [
                     {
-                        label: 'Soil Moisture (raw)',
-                        data: data.map(r => ({ x: r.timestamp, y: r.soil_moisture })),
+                        label: 'Root °F',
+                        data: data.map(r => ({ x: r.timestamp, y: r.root_temp_f })),
                         borderColor: '#84cc16',
                         backgroundColor: 'rgba(132, 204, 22, 0.08)',
                         fill: true,
+                        tension: 0.25,
+                        pointRadius: 0,
+                        pointHoverRadius: 4,
+                        borderWidth: 2,
+                    },
+                    {
+                        label: 'Canopy °F',
+                        data: data.map(r => ({ x: r.timestamp, y: r.temp_f })),
+                        borderColor: '#f59e0b',
+                        borderDash: [4, 4],
+                        fill: false,
                         tension: 0.25,
                         pointRadius: 0,
                         pointHoverRadius: 4,
@@ -309,7 +320,16 @@ async function loadCharts(hours = currentRangeHours) {
                 maintainAspectRatio: false,
                 interaction: { intersect: false, mode: 'index' },
                 plugins: {
-                    legend: { display: false },
+                    legend: {
+                        position: 'top',
+                        labels: {
+                            color: theme.textColor,
+                            usePointStyle: true,
+                            boxWidth: 8,
+                            padding: 16,
+                            font: { size: 11, weight: '500' },
+                        },
+                    },
                 },
                 scales: {
                     x: {
@@ -322,9 +342,9 @@ async function loadCharts(hours = currentRangeHours) {
                     },
                     y: {
                         position: 'left',
-                        title: { display: true, text: 'Raw', color: theme.textColor, font: { size: 10 } },
-                        suggestedMin: 300,
-                        suggestedMax: 900,
+                        title: { display: true, text: '°F', color: theme.textColor, font: { size: 10 } },
+                        suggestedMin: 40,
+                        suggestedMax: 75,
                         grid: { color: theme.gridColor },
                         ticks: { color: theme.textColor, font: { size: 10 } },
                     },
