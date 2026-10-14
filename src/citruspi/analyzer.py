@@ -9,11 +9,13 @@ Verdict is dashboard-only: never sends ntfy alerts.
 from __future__ import annotations
 
 import base64
+from collections.abc import Iterable
+import contextlib
+from datetime import date, datetime, timedelta
 import json
 import logging
-from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import httpx
 
@@ -106,7 +108,7 @@ def select_analysis_frames(
 
 def downscale_image(image_bytes: bytes, max_dim: int = 1280) -> bytes:
     """Downscale an image to max_dim on longest edge using cv2, or return original."""
-    try:
+    with contextlib.suppress(Exception):
         import cv2
         import numpy as np
 
@@ -124,8 +126,6 @@ def downscale_image(image_bytes: bytes, max_dim: int = 1280) -> bytes:
                 ok, buf = cv2.imencode(".jpg", resized, [cv2.IMWRITE_JPEG_QUALITY, 85])
                 if ok:
                     return buf.tobytes()
-    except Exception:
-        pass
     return image_bytes
 
 

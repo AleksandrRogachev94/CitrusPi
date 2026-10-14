@@ -6,7 +6,6 @@ import argparse
 import logging
 import sys
 import threading
-import time
 
 
 def main() -> None:
@@ -118,7 +117,8 @@ def main() -> None:
                 s.bind((config.host, config.port))
         except PermissionError:
             logger.warning(
-                "Port %d requires root/CAP_NET_BIND_SERVICE — falling back to port 8000 for local dev",
+                "Port %d requires root/CAP_NET_BIND_SERVICE — "
+                "falling back to port 8000 for local dev",
                 config.port,
             )
             config.port = 8000
@@ -139,7 +139,10 @@ def main() -> None:
         hostname = socket.gethostname()
         alerts.send_ntfy(
             title="CitrusPi Online",
-            message=f"CitrusPi monitor is online on {hostname} (http://{hostname}.local:{config.port}).",
+            message=(
+                f"CitrusPi monitor is online on {hostname} "
+                f"(http://{hostname}.local:{config.port})."
+            ),
             priority="default",
             tags="lemon",
         )

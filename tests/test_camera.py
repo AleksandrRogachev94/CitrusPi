@@ -3,8 +3,6 @@
 from datetime import datetime
 from pathlib import Path
 
-import pytest
-
 from citruspi import camera
 from citruspi.config import Config
 

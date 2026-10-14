@@ -5,8 +5,9 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -211,7 +212,8 @@ class AlertManager:
                 recovery_msg=f"Canopy sensor back online ({temp_f:.1f}°F).",
             )
 
-            # 2. temp_crit_low: breached at <= temp_min_crit_f; recovered at >= temp_min_crit_f + 2.0
+            # 2. temp_crit_low: breached at <= temp_min_crit_f;
+            #    recovered at >= temp_min_crit_f + 2.0
             self._evaluate_rule(
                 self.rules["temp_crit_low"],
                 is_breached=(temp_f <= self.config.temp_min_crit_f),
@@ -223,7 +225,8 @@ class AlertManager:
                 recovery_msg=f"Canopy temperature recovered to {temp_f:.1f}°F.",
             )
 
-            # 3. temp_crit_high: breached at >= temp_max_crit_f; recovered at <= temp_max_crit_f - 2.0
+            # 3. temp_crit_high: breached at >= temp_max_crit_f;
+            #    recovered at <= temp_max_crit_f - 2.0
             self._evaluate_rule(
                 self.rules["temp_crit_high"],
                 is_breached=(temp_f >= self.config.temp_max_crit_f),

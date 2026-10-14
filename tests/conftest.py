@@ -1,0 +1,14 @@
+"""Pytest fixtures and configuration for CitrusPi test suite."""
+
+from __future__ import annotations
+
+import pytest
+
+from citruspi import camera, runner
+
+
+@pytest.fixture(autouse=True)
+def _reset_module_state() -> None:
+    """Reset module-level backoff timers to prevent test poisoning."""
+    camera._last_capture_failure_time = 0.0
+    runner._last_ai_failure_time = 0.0

@@ -8,13 +8,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Generator
+from datetime import datetime
 import logging
+from pathlib import Path
+import re
 import sys
 import threading
 import time
-from datetime import datetime
-from pathlib import Path
-from typing import Any, Generator
+from typing import Any
 
 from citruspi.config import Config
 
@@ -60,8 +62,6 @@ def _get_placeholder_jpeg(text: str = "CitrusPi Camera Offline") -> bytes:
         return _MINIMAL_JPEG
 
 
-import re
-
 _DAILY_PHOTO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\.jpg$")
 
 _last_capture_failure_time: float = 0.0
@@ -73,14 +73,8 @@ def _open_video_capture(config: Config) -> Any:
     import cv2  # type: ignore[import-untyped]
 
     backend = cv2.CAP_V4L2 if sys.platform.startswith("linux") else cv2.CAP_ANY
-    target: Any
-    if sys.platform.startswith("linux") and config.camera_device:
-        target = config.camera_device
-    else:
-        target = config.camera_device_index
-
     try:
-        cap = cv2.VideoCapture(target, backend)
+        cap = cv2.VideoCapture(config.camera_device_index, backend)
     except Exception:
         cap = cv2.VideoCapture(config.camera_device_index)
     return cap
@@ -92,7 +86,7 @@ def capture_frame(config: Config, filename: str) -> Path | None:
 
     Returns the saved path or None.
     """
-    global _active_cap, _active_stream_count
+    global _active_cap
 
     config.captures_dir.mkdir(parents=True, exist_ok=True)
     target_path = config.captures_dir / filename
@@ -123,10 +117,11 @@ def capture_frame(config: Config, filename: str) -> Path | None:
                 _active_cap.set(cv2.CAP_PROP_FRAME_WIDTH, min(640, config.capture_width))
                 _active_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, min(480, config.capture_height))
                 if not ret or frame is None:
-                    logger.warning("Could not read frame from active stream handle; releasing handle")
+                    logger.warning(
+                        "Could not read frame from active stream handle; releasing handle"
+                    )
                     _active_cap.release()
                     _active_cap = None
-                    _active_stream_count = 0
                     frame = None
 
             # Case B: Stream is not open — open device directly with auto-exposure warmup
@@ -273,6 +268,10 @@ def generate_mjpeg_stream(config: Config) -> Generator[bytes, None, None]:
                         "Too many consecutive camera read failures (%d), terminating stream",
                         consecutive_failures,
                     )
+                    with _CAMERA_LOCK:
+                        if _active_cap is not None:
+                            _active_cap.release()
+                            _active_cap = None
                     break
                 time.sleep(0.1)
                 continue
@@ -285,6 +284,10 @@ def generate_mjpeg_stream(config: Config) -> Generator[bytes, None, None]:
                 consecutive_failures += 1
                 if consecutive_failures >= 15:
                     logger.warning("Repeated JPEG encode failure, terminating stream")
+                    with _CAMERA_LOCK:
+                        if _active_cap is not None:
+                            _active_cap.release()
+                            _active_cap = None
                     break
                 time.sleep(0.1)
                 continue

@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -135,7 +135,7 @@ class Store:
                         else:
                             raise
 
-                now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                now_utc = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
                 conn.execute(
                     "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?);",
                     (version, name, now_utc),
@@ -314,7 +314,7 @@ class Store:
     ) -> None:
         """Save or update daily AI analysis report (upsert)."""
         conn = self._get_conn()
-        now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        now_utc = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         leaf_drop_int = 1 if leaf_drop else 0
         with conn:
             conn.execute(

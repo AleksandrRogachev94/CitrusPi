@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 
@@ -40,7 +40,7 @@ class Reading:
         timestamp: str | None = None,
     ) -> Reading:
         """Create a reading, auto-computing temp_f, root_temp_f, VPD, and UTC timestamp if omitted."""
-        ts = timestamp or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        ts = timestamp or datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         calc_temp_f = temp_f
         if calc_temp_f is None and temp_c is not None:
             calc_temp_f = round(temp_c * 9.0 / 5.0 + 32.0, 2)
