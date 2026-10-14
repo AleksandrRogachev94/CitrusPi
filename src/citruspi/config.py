@@ -37,6 +37,15 @@ class Config:
     data_dir: Path = field(default_factory=lambda: _PROJECT_ROOT / "data")
     captures_dir: Path = field(default_factory=lambda: _PROJECT_ROOT / "captures")
 
+    # ── Alerts & Heartbeat ────────────────────────────────────────────
+    ntfy_url: str = "https://ntfy.sh"
+    ntfy_topic: str = field(default_factory=lambda: os.environ.get("CITRUSPI_NTFY_TOPIC", ""))
+    heartbeat_url: str = field(default_factory=lambda: os.environ.get("CITRUSPI_HEARTBEAT_URL", ""))
+    temp_min_crit_f: float = 38.0
+    temp_min_warn_f: float = 44.0
+    temp_max_crit_f: float = 85.0
+    alert_debounce_count: int = 3
+
     # ── Web server ────────────────────────────────────────────────────
     host: str = "0.0.0.0"
     port: int = 80
@@ -77,6 +86,12 @@ def load_config(path: str | Path | None = None) -> Config:
     for key in ("data_dir", "captures_dir", "w1_devices_dir"):
         if key in raw and raw[key] is not None:
             raw[key] = Path(raw[key])
+
+    # Environment variable overrides
+    if "CITRUSPI_NTFY_TOPIC" in os.environ:
+        raw["ntfy_topic"] = os.environ["CITRUSPI_NTFY_TOPIC"]
+    if "CITRUSPI_HEARTBEAT_URL" in os.environ:
+        raw["heartbeat_url"] = os.environ["CITRUSPI_HEARTBEAT_URL"]
 
     valid_fields = {f.name for f in dataclasses.fields(Config)}
     filtered: dict[str, Any] = {}

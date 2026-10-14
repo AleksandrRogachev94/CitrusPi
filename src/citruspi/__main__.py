@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 import threading
 import time
 
@@ -13,6 +14,11 @@ def main() -> None:
     parser.add_argument("--config", help="Path to config.yaml")
     parser.add_argument("--port", type=int, help="Web server port")
     parser.add_argument("--mock", action="store_true", help="Force mock sensors")
+    parser.add_argument(
+        "--test-alert",
+        action="store_true",
+        help="Send test ntfy alert and heartbeat ping, then exit",
+    )
     args = parser.parse_args()
 
     from citruspi.config import load_config
@@ -28,7 +34,39 @@ def main() -> None:
         format="%(asctime)s  %(name)-24s  %(levelname)-7s  %(message)s",
         datefmt="%H:%M:%S",
     )
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     logger = logging.getLogger("citruspi")
+
+    from citruspi.alerts import AlertManager
+
+    alerts = AlertManager(config)
+
+    if args.test_alert:
+        print("Testing CitrusPi alerts...")
+        print(f"  ntfy URL:      {config.ntfy_url}")
+        print(f"  ntfy topic:    {config.ntfy_topic or '(none)'}")
+        print(f"  heartbeat URL: {config.heartbeat_url or '(none)'}")
+
+        ntfy_ok = alerts.send_ntfy(
+            title="CitrusPi Test Alert",
+            message="This is a test notification from CitrusPi.",
+            priority="urgent",
+        )
+        alerts.send_heartbeat()
+
+        if ntfy_ok:
+            print("✓ ntfy test alert sent successfully")
+        else:
+            print("✗ ntfy test alert failed (check topic / network)")
+
+        if config.heartbeat_url:
+            print("✓ Heartbeat ping dispatched")
+        else:
+            print("ℹ No heartbeat_url configured")
+
+        sys.exit(0 if ntfy_ok else 1)
+        return
 
     from citruspi import camera
     from citruspi.sensors import SensorHub
@@ -38,6 +76,16 @@ def main() -> None:
     store = Store(config.data_dir)
     sensors = SensorHub(config)
     app = create_app(config, store, sensors)
+
+    # Startup notification
+    try:
+        alerts.send_ntfy(
+            title="CitrusPi Online",
+            message=f"CitrusPi monitor is online (http://{config.host}:{config.port}).",
+            priority="default",
+        )
+    except Exception:
+        logger.exception("Startup alert error")
 
     stop_event = threading.Event()
 
@@ -53,6 +101,14 @@ def main() -> None:
             initial = sensors.read()
             store.insert(initial)
             logger.info("📊 Startup reading: %s", initial)
+            try:
+                alerts.evaluate(initial)
+            except Exception:
+                logger.exception("Alert evaluation error on initial reading")
+            try:
+                alerts.send_heartbeat()
+            except Exception:
+                logger.exception("Heartbeat error on initial reading")
         except Exception:
             logger.exception("Initial sensor reading failed")
 
@@ -64,6 +120,14 @@ def main() -> None:
                 reading = sensors.read()
                 store.insert(reading)
                 logger.debug("📊 Poll: %s", reading)
+                try:
+                    alerts.evaluate(reading)
+                except Exception:
+                    logger.exception("Alert evaluation error")
+                try:
+                    alerts.send_heartbeat()
+                except Exception:
+                    logger.exception("Heartbeat error")
             except Exception:
                 logger.exception("Sensor poll error")
 

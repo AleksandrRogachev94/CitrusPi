@@ -17,6 +17,13 @@ def test_default_config() -> None:
     assert cfg.port == 80
     assert cfg.w1_devices_dir == Path("/sys/bus/w1/devices")
     assert not hasattr(cfg, "soil_moisture_address")
+    assert cfg.ntfy_url == "https://ntfy.sh"
+    assert cfg.ntfy_topic == ""
+    assert cfg.heartbeat_url == ""
+    assert cfg.temp_min_crit_f == 38.0
+    assert cfg.temp_min_warn_f == 44.0
+    assert cfg.temp_max_crit_f == 85.0
+    assert cfg.alert_debounce_count == 3
 
 
 def test_yaml_override(tmp_path: Path) -> None:
@@ -28,6 +35,9 @@ def test_yaml_override(tmp_path: Path) -> None:
                 "port": 9000,
                 "mock_sensors": True,
                 "w1_devices_dir": str(tmp_path / "w1"),
+                "ntfy_topic": "yaml-alerts",
+                "temp_min_crit_f": 35.0,
+                "alert_debounce_count": 5,
             }
         )
     )
@@ -36,5 +46,16 @@ def test_yaml_override(tmp_path: Path) -> None:
     assert cfg.port == 9000
     assert cfg.mock_sensors is True
     assert cfg.w1_devices_dir == tmp_path / "w1"
+    assert cfg.ntfy_topic == "yaml-alerts"
+    assert cfg.temp_min_crit_f == 35.0
+    assert cfg.alert_debounce_count == 5
     # defaults preserved
     assert cfg.daily_capture_hour == 22
+
+
+def test_alerting_env_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CITRUSPI_NTFY_TOPIC", "my-lemon-tent")
+    monkeypatch.setenv("CITRUSPI_HEARTBEAT_URL", "https://heartbeat.example.com/snitch")
+    cfg = load_config("/tmp/nonexistent.yaml")
+    assert cfg.ntfy_topic == "my-lemon-tent"
+    assert cfg.heartbeat_url == "https://heartbeat.example.com/snitch"

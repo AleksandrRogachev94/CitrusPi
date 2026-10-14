@@ -32,3 +32,17 @@ stream_fps: 5
 host: "0.0.0.0"
 port: 80
 log_level: "info"
+
+# Alerting & Heartbeats (ntfy.sh push notifications and dead-man's-snitch heartbeat ping)
+# ntfy_topic and heartbeat_url can also be set via CITRUSPI_NTFY_TOPIC and CITRUSPI_HEARTBEAT_URL env vars.
+ntfy_url: "https://ntfy.sh"
+ntfy_topic: ""
+heartbeat_url: ""
+
+# Temperature thresholds (°F) and debounce count (consecutive readings required to trigger).
+# NOTE: These thresholds assume the ~50°F winter phase and must be raised
+# when the tent runs warmer (e.g. ~60°F staging).
+temp_min_crit_f: 38.0
+temp_min_warn_f: 44.0
+temp_max_crit_f: 85.0
+alert_debounce_count: 3
