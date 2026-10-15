@@ -8,16 +8,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Generator
 import contextlib
-from datetime import datetime
 import logging
 import os
-from pathlib import Path
 import re
 import sys
 import threading
 import time
+from collections.abc import Generator
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from citruspi.config import Config
@@ -47,14 +47,15 @@ _MINIMAL_JPEG = (
 def _get_placeholder_jpeg(text: str = "CitrusPi Camera Offline") -> bytes:
     """Generate a lightweight placeholder frame if device unavailable."""
     try:
+        import cv2  # type: ignore[import-untyped]
         import numpy as np  # type: ignore[import-untyped]
-        import cv2          # type: ignore[import-untyped]
 
         img = np.zeros((720, 1280, 3), dtype=np.uint8)
         img[:] = (35, 30, 28)  # dark background
         cv2.putText(
             img, "CITRUSPI CAMERA", (100, 280), cv2.FONT_HERSHEY_SIMPLEX, 1.8, (245, 158, 11), 3
         )
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         cv2.putText(img, text, (100, 370), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (200, 200, 200), 2)
         cv2.putText(img, now_str, (100, 450), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (120, 120, 120), 2)
 

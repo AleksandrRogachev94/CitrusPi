@@ -3,8 +3,7 @@
 from pathlib import Path
 
 from citruspi.config import Config
-from citruspi.sensors import SensorHub, _DS18B20
-
+from citruspi.sensors import _DS18B20, SensorHub
 
 # ── Mock Sensors Tests ───────────────────────────────────────────────────────
 
@@ -203,21 +202,18 @@ def test_sensorhub_bme_lazy_reinit(tmp_path: Path) -> None:
 
 def test_bme280_calibration_sign_extension() -> None:
     from unittest.mock import MagicMock
+
     from citruspi.sensors import _BME280
 
     mock_bus = MagicMock()
 
     def mock_rb(addr: int, reg: int, n: int) -> list[int]:
-        if reg == 0x88:  # CALIB_T_P
-            return [0] * 26
-        elif reg == 0xA1:  # DIG_H1
-            return [75]
-        elif reg == 0xE1:  # CALIB_H
-            # h2: [h2_lsb, h2_msb, h3, h4_msb, h4_lsb|h5_lsb, h5_msb, h6]
-            # H4: (0xF0 << 4) | 0x05 = 0xF05 (3845 -> -251 signed s12)
-            # H5: (0x80 << 4) | 0x03 = 0x803 (2051 -> -2045 signed s12)
-            return [0, 0, 0, 0xF0, 0x35, 0x80, 0]
-        return [0] * n
+        calib_data = {
+            0x88: [0] * 26,  # CALIB_T_P
+            0xA1: [75],      # DIG_H1
+            0xE1: [0, 0, 0, 0xF0, 0x35, 0x80, 0],  # CALIB_H
+        }
+        return calib_data.get(reg, [0] * n)
 
     mock_bus.read_i2c_block_data.side_effect = mock_rb
     bme = _BME280(mock_bus, 0x76)

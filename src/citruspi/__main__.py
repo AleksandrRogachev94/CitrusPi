@@ -102,7 +102,7 @@ def main() -> None:
             else:
                 print("✗ Heartbeat ping failed (check URL / network)")
         else:
-            print("ℹ No heartbeat_url configured")
+            print("ℹ No heartbeat_url configured")  # noqa: RUF001
 
         all_ok = ntfy_ok and (hb_ok if config.heartbeat_url else True)
         sys.exit(0 if all_ok else 1)

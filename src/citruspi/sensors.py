@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import logging
 import math
-from pathlib import Path
 import random
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 from citruspi.config import Config
@@ -31,7 +31,7 @@ class _MockSensors:
         elapsed = time.time() - self._start
         hour_angle = (elapsed / 3600) * (2 * math.pi / 24)
 
-        # Simulate canopy: warmer during lights-on, cooler at night (12–18 °C)
+        # Simulate canopy: warmer during lights-on, cooler at night (12-18 °C)
         base_c = 15.0 + 3.0 * math.sin(hour_angle)
         temp_c = round(base_c + random.gauss(0, 0.3), 2)
         temp_f = round(temp_c * 9 / 5 + 32, 2)

@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from citruspi import camera
 from citruspi.config import Config
@@ -30,9 +31,12 @@ def test_capture_returns_none_when_real_device_missing(tmp_path: Path) -> None:
         mock_sensors=False,
         camera_device_index=99,  # non-existent V4L2 index
     )
-    path = camera.capture_frame(cfg, filename="2026-10-13.jpg")
-    assert path is None
-    assert not (cfg.captures_dir / "2026-10-13.jpg").exists()
+    mock_cap = MagicMock()
+    mock_cap.isOpened.return_value = False
+    with patch("cv2.VideoCapture", return_value=mock_cap):
+        path = camera.capture_frame(cfg, filename="2026-10-13.jpg")
+        assert path is None
+        assert not (cfg.captures_dir / "2026-10-13.jpg").exists()
 
 
 def test_generate_mjpeg_stream_mock(tmp_path: Path) -> None:

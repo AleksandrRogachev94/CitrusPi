@@ -9,11 +9,11 @@ Verdict is dashboard-only: never sends ntfy alerts.
 from __future__ import annotations
 
 import base64
-from collections.abc import Iterable
 import contextlib
-from datetime import date, datetime, timedelta
 import json
 import logging
+from collections.abc import Iterable
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
