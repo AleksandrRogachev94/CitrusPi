@@ -111,18 +111,6 @@ def create_app(
             return {"status": "ok", "path": str(path), "url": f"/captures/{path.name}"}
         return {"status": "error", "message": "capture failed"}
 
-    @app.post("/api/poll")
-    def api_poll() -> dict[str, Any]:
-        """Manually poll sensors, store in SQLite, and evaluate alerts."""
-        if alerts is not None:
-            from citruspi.runner import sensor_tick
-
-            reading = sensor_tick(sensors, store, alerts)
-        else:
-            reading = sensors.read()
-            store.insert(reading)
-        return reading.to_dict()
-
     # ── Fragments for htmx ────────────────────────────────────────────
 
     @app.get("/fragments/readings", response_class=HTMLResponse)

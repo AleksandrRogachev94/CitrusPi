@@ -59,7 +59,7 @@ def test_find_historical_photo_never_returns_today(tmp_path: Path) -> None:
 
     today_date = date(2026, 10, 13)
 
-    # Looking for today (days_ago=0) must return None because it must be strictly earlier than today
+    # Looking for today (days_ago=0) must return None because it must be strictly earlier
     match_today = find_historical_photo(
         captures, today_date=today_date, days_ago=0, tolerance_days=0
     )
@@ -215,7 +215,11 @@ def test_api_key_sent_as_header_and_absent_from_url(
 
         # URL verification
         url = call_args[0][0] if call_args[0] else call_args.kwargs["url"]
-        assert url == f"https://generativelanguage.googleapis.com/v1beta/models/{test_config.ai_model}:generateContent"
+        expected_url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{test_config.ai_model}:generateContent"
+        )
+        assert url == expected_url
         assert "key=" not in url
         assert test_config.ai_api_key not in url
 
@@ -379,7 +383,8 @@ def test_http_status_error_returns_none_without_raising(
     req = httpx.Request("POST", "https://generativelanguage.googleapis.com")
     resp = httpx.Response(status_code=500, request=req)
 
-    with patch("httpx.post", side_effect=httpx.HTTPStatusError("500 Server Error", request=req, response=resp)):
+    error = httpx.HTTPStatusError("500 Server Error", request=req, response=resp)
+    with patch("httpx.post", side_effect=error):
         result = run_daily_analysis(test_config, store, today_photo)
         assert result is None
 
@@ -425,11 +430,13 @@ def test_parse_analysis_response() -> None:
     from citruspi.analyzer import parse_analysis_response
 
     # Valid response
-    res = parse_analysis_response('{"status": "healthy", "leaf_drop": false, "summary": "Looking great"}')
+    valid_json = '{"status": "healthy", "leaf_drop": false, "summary": "Looking great"}'
+    res = parse_analysis_response(valid_json)
     assert res == {"status": "healthy", "leaf_drop": False, "summary": "Looking great"}
 
     # Fenced markdown
-    res_fenced = parse_analysis_response('```json\n{"status": "alert", "leaf_drop": true, "summary": "Heavy drop"}\n```')
+    fenced_json = '```json\n{"status": "alert", "leaf_drop": true, "summary": "Heavy drop"}\n```'
+    res_fenced = parse_analysis_response(fenced_json)
     assert res_fenced == {"status": "alert", "leaf_drop": True, "summary": "Heavy drop"}
 
     # Invalid JSON

@@ -267,7 +267,6 @@ body {
 /* Card Accents */
 .sensor-card.temp     { border-top: 3px solid var(--orange); }
 .sensor-card.humidity { border-top: 3px solid var(--blue); }
-.sensor-card.soil,
 .sensor-card.root     { border-top: 3px solid var(--green); }
 
 /* VPD Badges */

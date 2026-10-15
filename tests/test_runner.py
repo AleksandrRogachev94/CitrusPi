@@ -24,7 +24,10 @@ def test_sensor_tick_records_reading_and_evaluates_alerts(tmp_path: Path) -> Non
     sensors = SensorHub(cfg)
     alerts = AlertManager(cfg)
 
-    with patch.object(alerts, "evaluate") as mock_eval, patch.object(alerts, "send_heartbeat") as mock_hb:
+    with (
+        patch.object(alerts, "evaluate") as mock_eval,
+        patch.object(alerts, "send_heartbeat") as mock_hb,
+    ):
         reading = sensor_tick(sensors, store, alerts)
         assert reading is not None
         assert reading.temp_f is not None
@@ -113,4 +116,33 @@ def test_daily_tick_skips_analysis_if_already_analyzed_today(tmp_path: Path) -> 
         photo = daily_tick(cfg, store, now=target_time)
         assert photo is None
         mock_analysis.assert_not_called()
+
+
+def test_daily_tick_alerts_on_dark_frame(tmp_path: Path) -> None:
+    cfg = Config(
+        mock_sensors=True,
+        data_dir=tmp_path / "data",
+        captures_dir=tmp_path / "captures",
+        ntfy_topic="test-topic",
+        daily_capture_hour=22,
+        daily_capture_minute=0,
+    )
+    cfg.captures_dir.mkdir(parents=True, exist_ok=True)
+    existing_photo = cfg.captures_dir / "2026-10-14.jpg"
+    existing_photo.write_bytes(b"dummy photo content")
+
+    store = Store(cfg.data_dir)
+    alerts = AlertManager(cfg)
+    target_time = datetime(2026, 10, 14, 22, 5)
+
+    with patch("citruspi.runner.check_frame_brightness", return_value=False), patch.object(
+        alerts, "send_ntfy"
+    ) as mock_ntfy:
+        daily_tick(cfg, store, now=target_time, alerts=alerts)
+        mock_ntfy.assert_called_once()
+        assert "Grow Light Failure" in mock_ntfy.call_args[1]["title"]
+
+        # Second check on same day must not re-alert (rate limited to 1 alert/day)
+        daily_tick(cfg, store, now=target_time, alerts=alerts)
+        assert mock_ntfy.call_count == 1
 

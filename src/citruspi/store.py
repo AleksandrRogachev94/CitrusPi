@@ -103,7 +103,7 @@ class Store:
         return self._local.conn
 
     def _run_migrations(self) -> None:
-        """Execute any pending schema migrations inside a single transaction."""
+        """Execute any pending schema migrations."""
         conn = self._get_conn()
         with conn:
             conn.execute(

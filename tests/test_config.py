@@ -9,7 +9,7 @@ from citruspi.config import Config, load_config
 
 
 def test_default_config() -> None:
-    cfg = load_config("/tmp/nonexistent.yaml")
+    cfg = Config()
     assert isinstance(cfg, Config)
     assert cfg.poll_interval_sec == 60
     assert cfg.daily_capture_hour == 22
@@ -28,6 +28,11 @@ def test_default_config() -> None:
     assert cfg.ai_api_key == ""
     assert cfg.ai_model == "gemini-3.8-flash"
     assert cfg.plant_layout == ""
+
+
+def test_missing_config_raises_file_not_found() -> None:
+    with pytest.raises(FileNotFoundError):
+        load_config("/nonexistent/citruspi_config.yaml")
 
 
 def test_yaml_override(tmp_path: Path) -> None:
@@ -65,11 +70,13 @@ def test_yaml_override(tmp_path: Path) -> None:
     assert cfg.daily_capture_hour == 22
 
 
-def test_alerting_env_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_alerting_env_overrides(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("CITRUSPI_NTFY_TOPIC", "my-lemon-tent")
     monkeypatch.setenv("CITRUSPI_HEARTBEAT_URL", "https://heartbeat.example.com/snitch")
     monkeypatch.setenv("CITRUSPI_AI_API_KEY", "env-api-key-xyz")
-    cfg = load_config("/tmp/nonexistent.yaml")
+    empty_cfg = tmp_path / "empty.yaml"
+    empty_cfg.write_text("{}")
+    cfg = load_config(str(empty_cfg))
     assert cfg.ntfy_topic == "my-lemon-tent"
     assert cfg.heartbeat_url == "https://heartbeat.example.com/snitch"
     assert cfg.ai_api_key == "env-api-key-xyz"

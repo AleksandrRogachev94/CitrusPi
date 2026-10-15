@@ -39,7 +39,7 @@ class Reading:
         vpd_kpa: float | None = None,
         timestamp: str | None = None,
     ) -> Reading:
-        """Create a reading, auto-computing temp_f, root_temp_f, VPD, and UTC timestamp if omitted."""
+        """Create a reading, auto-computing temp_f, root_temp_f, VPD, and UTC timestamp."""
         ts = timestamp or datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         calc_temp_f = temp_f
         if calc_temp_f is None and temp_c is not None:

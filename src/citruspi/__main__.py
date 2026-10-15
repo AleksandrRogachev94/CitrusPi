@@ -48,7 +48,7 @@ def main() -> None:
             sys.exit(1)
         if not config.ai_api_key:
             print(
-                "AI API key missing (set ai_api_key in config.yaml or CITRUSPI_AI_API_KEY env var)",
+                "AI API key missing (set ai_api_key in config or CITRUSPI_AI_API_KEY env var)",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -106,7 +106,6 @@ def main() -> None:
 
         all_ok = ntfy_ok and (hb_ok if config.heartbeat_url else True)
         sys.exit(0 if all_ok else 1)
-        return
 
     import socket
 
@@ -134,18 +133,39 @@ def main() -> None:
     sensors = SensorHub(config)
     app = create_app(config, store, sensors, alerts=alerts)
 
-    # Startup notification
+    # Startup notification (rate limit to prevent spam if systemd crash-loops)
     try:
-        hostname = socket.gethostname()
-        alerts.send_ntfy(
-            title="CitrusPi Online",
-            message=(
-                f"CitrusPi monitor is online on {hostname} "
-                f"(http://{hostname}.local:{config.port})."
-            ),
-            priority="default",
-            tags="lemon",
-        )
+        import time
+
+        last_start_file = config.data_dir / ".last_startup"
+        now_ts = time.time()
+        rapid_restart = False
+        if last_start_file.is_file():
+            try:
+                prev_ts = float(last_start_file.read_text().strip())
+                if (now_ts - prev_ts) < 60.0:
+                    rapid_restart = True
+                    logger.warning("Skipping online alert due to rapid restart (< 60s)")
+            except Exception:
+                pass
+
+        try:
+            config.data_dir.mkdir(parents=True, exist_ok=True)
+            last_start_file.write_text(str(now_ts))
+        except Exception:
+            pass
+
+        if not rapid_restart:
+            hostname = socket.gethostname()
+            alerts.send_ntfy(
+                title="CitrusPi Online",
+                message=(
+                    f"CitrusPi monitor is online on {hostname} "
+                    f"(http://{hostname}.local:{config.port})."
+                ),
+                priority="default",
+                tags="lemon",
+            )
     except Exception:
         logger.exception("Startup alert error")
 
@@ -159,7 +179,7 @@ def main() -> None:
     )
     photo_thread = threading.Thread(
         target=run_daily_loop,
-        args=(config, store, stop_event),
+        args=(config, store, stop_event, alerts),
         daemon=True,
         name="daily_photo",
     )
@@ -168,7 +188,11 @@ def main() -> None:
 
     logger.info("")
     logger.info("🍊 CitrusPi running at http://%s:%d", config.host, config.port)
-    logger.info("   Daily photo time: %02d:%02d", config.daily_capture_hour, config.daily_capture_minute)
+    logger.info(
+        "   Daily photo time: %02d:%02d",
+        config.daily_capture_hour,
+        config.daily_capture_minute,
+    )
     logger.info("   Sensor cadence:   every %ds", config.poll_interval_sec)
     logger.info("")
 

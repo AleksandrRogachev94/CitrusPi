@@ -9,8 +9,10 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+import contextlib
 from datetime import datetime
 import logging
+import os
 from pathlib import Path
 import re
 import sys
@@ -50,9 +52,9 @@ def _get_placeholder_jpeg(text: str = "CitrusPi Camera Offline") -> bytes:
 
         img = np.zeros((720, 1280, 3), dtype=np.uint8)
         img[:] = (35, 30, 28)  # dark background
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        cv2.putText(img, "CITRUSPI CAMERA", (100, 280), cv2.FONT_HERSHEY_SIMPLEX, 1.8, (245, 158, 11), 3)
+        cv2.putText(
+            img, "CITRUSPI CAMERA", (100, 280), cv2.FONT_HERSHEY_SIMPLEX, 1.8, (245, 158, 11), 3
+        )
         cv2.putText(img, text, (100, 370), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (200, 200, 200), 2)
         cv2.putText(img, now_str, (100, 450), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (120, 120, 120), 2)
 
@@ -69,7 +71,7 @@ _FAILURE_BACKOFF_SEC: float = 600.0  # 10 minutes
 
 
 def _open_video_capture(config: Config) -> Any:
-    """Open OpenCV VideoCapture handle using direct V4L2 on Linux."""
+    """Open OpenCV VideoCapture handle using direct V4L2 on Linux with MJPG if supported."""
     import cv2  # type: ignore[import-untyped]
 
     backend = cv2.CAP_V4L2 if sys.platform.startswith("linux") else cv2.CAP_ANY
@@ -77,6 +79,9 @@ def _open_video_capture(config: Config) -> Any:
         cap = cv2.VideoCapture(config.camera_device_index, backend)
     except Exception:
         cap = cv2.VideoCapture(config.camera_device_index)
+    if cap.isOpened():
+        with contextlib.suppress(Exception):
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
     return cap
 
 
@@ -90,13 +95,15 @@ def capture_frame(config: Config, filename: str) -> Path | None:
 
     config.captures_dir.mkdir(parents=True, exist_ok=True)
     target_path = config.captures_dir / filename
+    tmp_path = target_path.with_name(target_path.stem + ".part.jpg")
 
     with _CAMERA_LOCK:
         # Mock mode fallback
         if config.mock_sensors:
             placeholder = _get_placeholder_jpeg("Mock camera frame")
             if placeholder:
-                target_path.write_bytes(placeholder)
+                tmp_path.write_bytes(placeholder)
+                os.replace(tmp_path, target_path)
                 return target_path
             return None
 
@@ -105,17 +112,10 @@ def capture_frame(config: Config, filename: str) -> Path | None:
 
             frame = None
 
-            # Case A: Live stream is already open — reuse active device handle to avoid V4L2 lock contention
+            # Case A: Live stream is already open — reuse active device handle at stream resolution
+            # to avoid UVC camera instability and frame drops from live resolution changes.
             if _active_cap is not None and _active_cap.isOpened():
-                # Temporarily switch to full resolution for the high-res snapshot
-                _active_cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.capture_width)
-                _active_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.capture_height)
-                for _ in range(4):
-                    _active_cap.read()
                 ret, frame = _active_cap.read()
-                # Restore stream resolution
-                _active_cap.set(cv2.CAP_PROP_FRAME_WIDTH, min(640, config.capture_width))
-                _active_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, min(480, config.capture_height))
                 if not ret or frame is None:
                     logger.warning(
                         "Could not read frame from active stream handle; releasing handle"
@@ -137,7 +137,8 @@ def capture_frame(config: Config, filename: str) -> Path | None:
                     cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.capture_width)
                     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.capture_height)
 
-                    # Discard 12 frames to allow USB webcam ISP (auto-exposure/white balance) to stabilize
+                    # Discard 12 frames to allow USB webcam ISP (auto-exposure/white balance)
+                    # to properly stabilize
                     for _ in range(12):
                         cap.read()
 
@@ -148,7 +149,10 @@ def capture_frame(config: Config, filename: str) -> Path | None:
                 finally:
                     cap.release()
 
-            cv2.imwrite(str(target_path), frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            if not cv2.imwrite(str(tmp_path), frame, [cv2.IMWRITE_JPEG_QUALITY, 85]):
+                logger.error("cv2.imwrite failed writing to %s", tmp_path)
+                return None
+            os.replace(tmp_path, target_path)
             logger.info("📸 Captured photo → %s", target_path)
             return target_path
 
@@ -167,7 +171,7 @@ def check_and_take_daily_capture(
     """Check if the scheduled daily timelapse photo has been taken today.
 
     If current hour/minute matches or exceeds configured time and today's
-    photo does not exist yet, take it.
+    photo does not exist yet (or is empty), take it.
     Backs off for 10 minutes on failure.
     """
     global _last_capture_failure_time
@@ -176,7 +180,7 @@ def check_and_take_daily_capture(
     today_str = curr_now.strftime("%Y-%m-%d")
     target_path = config.captures_dir / f"{today_str}.jpg"
 
-    if target_path.exists():
+    if target_path.exists() and target_path.stat().st_size > 0:
         # Already snapped today's timelapse photo
         return None
 
@@ -186,9 +190,11 @@ def check_and_take_daily_capture(
         return None
 
     # Check if we have passed the scheduled time of day
-    if curr_now.hour > config.daily_capture_hour or (
-        curr_now.hour == config.daily_capture_hour and curr_now.minute >= config.daily_capture_minute
-    ):
+    is_scheduled_time = curr_now.hour > config.daily_capture_hour or (
+        curr_now.hour == config.daily_capture_hour
+        and curr_now.minute >= config.daily_capture_minute
+    )
+    if is_scheduled_time:
         logger.info("⏰ Time for daily timelapse photo (%s)", today_str)
         result = capture_frame(config, filename=f"{today_str}.jpg")
         if result is None:
@@ -252,7 +258,9 @@ def generate_mjpeg_stream(config: Config) -> Generator[bytes, None, None]:
             )
             time.sleep(1.0)
 
-    logger.info("▶ Live video stream started (%d FPS, active viewers=%d)", fps, _active_stream_count)
+    logger.info(
+        "▶ Live video stream started (%d FPS, active viewers=%d)", fps, _active_stream_count
+    )
     consecutive_failures = 0
     try:
         while True:

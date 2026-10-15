@@ -12,3 +12,7 @@ def _reset_module_state() -> None:
     """Reset module-level backoff timers to prevent test poisoning."""
     camera._last_capture_failure_time = 0.0
     runner._last_ai_failure_time = 0.0
+    runner._ai_daily_attempts = 0
+    runner._ai_attempt_date = ""
+    runner._ai_permanent_failure_date = ""
+    runner._last_dark_alert_date = ""

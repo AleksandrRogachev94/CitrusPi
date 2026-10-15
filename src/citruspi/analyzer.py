@@ -190,6 +190,37 @@ def build_analysis_request(
     return parts
 
 
+class PermanentAIError(Exception):
+    """Fatal non-retryable error from AI API (e.g. 400, 401, 403, 404)."""
+
+
+def check_frame_brightness(image_bytes: bytes, min_mean_brightness: float = 15.0) -> bool:
+    """Check if the frame is sufficiently illuminated for visual analysis.
+
+    Returns False if an image frame (larger than 10x10) is too dark/black.
+    """
+    try:
+        import cv2
+        import numpy as np
+
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
+        if img is not None:
+            h, w = img.shape[:2]
+            if h > 10 and w > 10:
+                mean_val = float(np.mean(img))
+                if mean_val < min_mean_brightness:
+                    logger.warning(
+                        "Frame too dark for AI analysis (mean brightness: %.1f < %.1f)",
+                        mean_val,
+                        min_mean_brightness,
+                    )
+                    return False
+        return True
+    except Exception:
+        return True
+
+
 def call_gemini_api(
     model: str,
     api_key: str,
@@ -198,16 +229,32 @@ def call_gemini_api(
 ) -> str | None:
     """Call Google Gemini generateContent API and return raw response text."""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-    response = httpx.post(
-        url,
-        headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
-        json={
-            "contents": [{"parts": parts}],
-            "generationConfig": {"responseMimeType": "application/json", "temperature": 0.2},
-        },
-        timeout=timeout,
-    )
-    response.raise_for_status()
+    try:
+        response = httpx.post(
+            url,
+            headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+            json={
+                "contents": [{"parts": parts}],
+                "generationConfig": {"responseMimeType": "application/json", "temperature": 0.2},
+            },
+            timeout=timeout,
+        )
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code
+        if 400 <= status < 500 and status != 429:
+            # Permanent client error (invalid API key, non-existent model, bad request)
+            logger.error(
+                "Permanent HTTP %d error calling Gemini API: %s",
+                status,
+                exc.response.text,
+            )
+            raise PermanentAIError(f"HTTP {status}: {exc.response.text}") from exc
+        logger.warning("Transient HTTP %d error calling Gemini API: %s", status, exc)
+        return None
+    except Exception as exc:
+        logger.warning("Network or unexpected error calling Gemini API: %s", exc)
+        return None
 
     data = response.json()
     candidates = data.get("candidates", [])
@@ -270,6 +317,29 @@ def run_daily_analysis(
             today_date = datetime.now().date()
         today_str = today_date.strftime("%Y-%m-%d")
 
+        photo_bytes = today_path.read_bytes()
+        if not check_frame_brightness(photo_bytes):
+            verdict = {
+                "status": "watch",
+                "leaf_drop": False,
+                "summary": (
+                    "Photo too dark for canopy health analysis "
+                    "(check tent lighting or capture schedule)."
+                ),
+            }
+            store.save_daily_report(
+                today_str,
+                verdict["status"],
+                verdict["summary"],
+                verdict["leaf_drop"],
+            )
+            return {
+                "date": today_str,
+                "status": verdict["status"],
+                "leaf_drop": verdict["leaf_drop"],
+                "summary": verdict["summary"],
+            }
+
         parts = build_analysis_request(config, store, today_path, today_date)
         raw_text = call_gemini_api(config.ai_model, config.ai_api_key, parts)
         if not raw_text:
@@ -292,6 +362,8 @@ def run_daily_analysis(
             "leaf_drop": verdict["leaf_drop"],
             "summary": verdict["summary"],
         }
+    except PermanentAIError:
+        raise
     except Exception:
         logger.exception("Daily AI analysis failed")
         return None

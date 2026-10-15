@@ -78,20 +78,25 @@ class Config:
 
 def load_config(path: str | Path | None = None) -> Config:
     """Load config from YAML, env-var, or compiled defaults."""
-    search: list[Path] = []
-    if path:
-        search.append(Path(path))
-    env = os.environ.get("CITRUSPI_CONFIG")
-    if env:
-        search.append(Path(env))
-    search.append(_PROJECT_ROOT / "config.yaml")
-
     raw: dict[str, Any] = {}
-    for p in search:
-        if p.is_file():
-            with open(p) as fh:
-                raw = yaml.safe_load(fh) or {}
-            break  # first match wins
+    if path is not None:
+        p = Path(path)
+        if not p.is_file():
+            raise FileNotFoundError(f"Config file not found: {path}")
+        with open(p) as fh:
+            raw = yaml.safe_load(fh) or {}
+    else:
+        search: list[Path] = []
+        env = os.environ.get("CITRUSPI_CONFIG")
+        if env:
+            search.append(Path(env))
+        search.append(_PROJECT_ROOT / "config.yaml")
+
+        for p in search:
+            if p.is_file():
+                with open(p) as fh:
+                    raw = yaml.safe_load(fh) or {}
+                break  # first match wins
 
     import dataclasses
     import logging

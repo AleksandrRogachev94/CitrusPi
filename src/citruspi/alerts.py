@@ -104,11 +104,11 @@ class AlertManager:
             resp.raise_for_status()
             return True
         except Exception as e:
-            logger.warning("Failed to send ntfy alert: %s", e)
+            logger.warning("Failed to send ntfy alert (%s)", type(e).__name__)
             return False
 
     def send_heartbeat(self) -> bool:
-        """Send a GET request to heartbeat_url if configured. Returns True on success, False on failure."""
+        """Send a GET request to heartbeat_url if configured. Returns True on success."""
         if not self.config.heartbeat_url:
             return False
 
@@ -117,7 +117,7 @@ class AlertManager:
             resp.raise_for_status()
             return True
         except Exception as e:
-            logger.warning("Failed to send heartbeat: %s", e)
+            logger.warning("Failed to send heartbeat (%s)", type(e).__name__)
             return False
 
     def _evaluate_rule(
@@ -130,57 +130,36 @@ class AlertManager:
         recovery_msg: str,
     ) -> None:
         """Update consecutive debouncing, active state, and dispatch notifications."""
+        if rule.is_active and is_recovered:
+            self._notify(
+                f"Resolved: {rule.title}",
+                recovery_msg,
+                "default",
+                "white_check_mark",
+            )
+            rule.is_active = False
+            rule.breach_count = 0
+            if rule.critical:
+                rule.last_sent = None
+            return
+
+        if not is_breached:
+            if not rule.is_active:
+                rule.breach_count = 0
+            return
+
+        rule.breach_count += 1
+        if rule.breach_count < self.config.alert_debounce_count:
+            return
+
+        now = self.clock()
+        if rule.last_sent is not None and (now - rule.last_sent) < rule.cooldown_sec:
+            return
+
         tag = "warning" if rule.critical else "lemon"
-        if rule.is_active:
-            if is_recovered:
-                self._notify(
-                    f"Resolved: {rule.title}",
-                    recovery_msg,
-                    "default",
-                    "white_check_mark",
-                )
-                rule.is_active = False
-                rule.breach_count = 0
-                if rule.critical:
-                    rule.last_sent = None
-            elif is_breached:
-                rule.breach_count += 1
-                now = self.clock()
-                cooldown_elapsed = (rule.last_sent is None) or (
-                    (now - rule.last_sent) >= rule.cooldown_sec
-                )
-                if rule.breach_count >= self.config.alert_debounce_count and cooldown_elapsed:
-                    sent = self._notify(
-                        rule.title,
-                        breach_msg,
-                        rule.priority,
-                        tag,
-                    )
-                    if sent:
-                        rule.last_sent = now
-            else:
-                # Inside hysteresis band: while active and not recovered, changes nothing
-                pass
-        else:
-            if is_breached:
-                rule.breach_count += 1
-                now = self.clock()
-                cooldown_elapsed = (rule.last_sent is None) or (
-                    (now - rule.last_sent) >= rule.cooldown_sec
-                )
-                if rule.breach_count >= self.config.alert_debounce_count and cooldown_elapsed:
-                    sent = self._notify(
-                        rule.title,
-                        breach_msg,
-                        rule.priority,
-                        tag,
-                    )
-                    if sent:
-                        rule.last_sent = now
-                        rule.is_active = True
-            else:
-                # Strictly consecutive debounce: non-breached reading resets counter
-                rule.breach_count = 0
+        if self._notify(rule.title, breach_msg, rule.priority, tag):
+            rule.last_sent = now
+            rule.is_active = True
 
     def evaluate(self, reading: Any) -> None:
         """Evaluate a reading against all rules."""

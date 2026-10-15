@@ -49,13 +49,6 @@ def test_api_history(client: TestClient) -> None:
     assert len(r.json()) >= 1
 
 
-def test_api_poll(client: TestClient) -> None:
-    r = client.post("/api/poll")
-    assert r.status_code == 200
-    assert "temp_c" in r.json()
-    assert "root_temp_c" in r.json()
-
-
 def test_gallery_loads(client: TestClient) -> None:
     r = client.get("/gallery")
     assert r.status_code == 200
@@ -92,21 +85,4 @@ def test_dashboard_with_ai_report(tmp_path: Path) -> None:
     assert "AI Canopy Health" in r.text
     assert "HEALTHY" in r.text
     assert "All trees in good health" in r.text
-
-
-def test_api_poll_with_alerts(tmp_path: Path) -> None:
-    from citruspi.alerts import AlertManager
-
-    cfg = Config(mock_sensors=True, data_dir=tmp_path / "data", captures_dir=tmp_path / "captures")
-    store = Store(cfg.data_dir)
-    sensors = SensorHub(cfg)
-    alerts = AlertManager(cfg)
-    app = create_app(cfg, store, sensors, alerts=alerts)
-    tc = TestClient(app)
-
-    with patch.object(alerts, "evaluate") as mock_eval:
-        r = tc.post("/api/poll")
-        assert r.status_code == 200
-        mock_eval.assert_called_once()
-        assert "temp_c" in r.json()
 
