@@ -62,20 +62,21 @@ if [ ! -f "$VENDOR_DIR/chartjs-adapter-date-fns.bundle.min.js" ]; then
 fi
 
 # 6. Bootstrap config.yaml from example if missing, and secure permissions
+CURRENT_USER="${SUDO_USER:-$(id -un)}"
 if [ ! -f config.yaml ]; then
     echo "==> Creating initial config.yaml from config.example.yaml..."
     cp config.example.yaml config.yaml
 fi
+chown "$CURRENT_USER:$CURRENT_USER" config.yaml 2>/dev/null || true
 chmod 600 config.yaml
+chown -R "$CURRENT_USER:$CURRENT_USER" "$SCRIPT_DIR/.venv" 2>/dev/null || true
 
 # 7. Install & start systemd service (dynamically configure user and path)
-CURRENT_USER="$(id -un)"
 echo "==> Configuring systemd service for user '$CURRENT_USER' in '$SCRIPT_DIR'..."
 sudo usermod -aG i2c,video "$CURRENT_USER" || true
 
 sed -e "s|User=pi|User=$CURRENT_USER|g" \
-    -e "s|WorkingDirectory=/home/pi/citruspi|WorkingDirectory=$SCRIPT_DIR|g" \
-    -e "s|/home/pi/citruspi/.venv/bin/python|$SCRIPT_DIR/.venv/bin/python|g" \
+    -e "s|/home/pi/citruspi|$SCRIPT_DIR|g" \
     deploy/citruspi.service | sudo tee /etc/systemd/system/citruspi.service > /dev/null
 
 sudo systemctl daemon-reload
