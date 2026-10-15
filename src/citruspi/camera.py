@@ -83,6 +83,8 @@ def _open_video_capture(config: Config) -> Any:
     if cap.isOpened():
         with contextlib.suppress(Exception):
             cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+        with contextlib.suppress(Exception):
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     return cap
 
 
@@ -135,12 +137,20 @@ def capture_frame(config: Config, filename: str) -> Path | None:
                     return None
 
                 try:
+                    with contextlib.suppress(Exception):
+                        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
                     cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.capture_width)
                     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.capture_height)
 
-                    # Discard 12 frames to allow USB webcam ISP (auto-exposure/white balance)
-                    # to properly stabilize
-                    for _ in range(12):
+                    # Re-assert MJPG fourcc after setting resolution (required by some V4L2 drivers)
+                    with contextlib.suppress(Exception):
+                        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+
+                    # Discard 25 frames (~1 sec at 30 fps) to allow USB webcam ISP
+                    # (auto-exposure, auto-white balance, and motorized autofocus like on Logitech C930e)
+                    # to properly settle before snapping.
+                    for _ in range(25):
                         cap.read()
 
                     ret, frame = cap.read()
@@ -154,7 +164,9 @@ def capture_frame(config: Config, filename: str) -> Path | None:
                 logger.error("cv2.imwrite failed writing to %s", tmp_path)
                 return None
             os.replace(tmp_path, target_path)
-            logger.info("📸 Captured photo → %s", target_path)
+            h, w = frame.shape[:2]
+            size_kb = target_path.stat().st_size / 1024
+            logger.info("📸 Captured photo (%dx%d, %.1f KB) → %s", w, h, size_kb, target_path)
             return target_path
 
         except ImportError:
@@ -242,6 +254,8 @@ def generate_mjpeg_stream(config: Config) -> Generator[bytes, None, None]:
             if _active_cap.isOpened():
                 _active_cap.set(cv2.CAP_PROP_FRAME_WIDTH, min(640, config.capture_width))
                 _active_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, min(480, config.capture_height))
+                with contextlib.suppress(Exception):
+                    _active_cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
 
         if _active_cap is None or not _active_cap.isOpened():
             camera_ok = False

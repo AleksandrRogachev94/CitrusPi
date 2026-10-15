@@ -24,8 +24,8 @@ class Config:
     # ── Camera & Photoperiod ──────────────────────────────────────────
     camera_device: str = "/dev/video0"
     camera_device_index: int = 0
-    capture_width: int = 1280
-    capture_height: int = 720
+    capture_width: int = 1920
+    capture_height: int = 1080
 
     # Photoperiod & daily timelapse photo schedule
     # Citrus grow tents often run lights overnight (e.g. 20:00 to 06:00)
