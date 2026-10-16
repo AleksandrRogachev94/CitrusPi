@@ -213,3 +213,63 @@ def test_generator_ends_after_max_session_sec(tmp_path: Path) -> None:
         assert len(parts) >= 1
 
 
+def test_mjpg_fourcc_variants() -> None:
+    # 1. Module with VideoWriter_fourcc
+    class ModA:
+        def VideoWriter_fourcc(self, *chars: str) -> int:
+            return 12345
+
+    assert camera._mjpg_fourcc(ModA()) == 12345
+
+    # 2. Module with VideoWriter.fourcc
+    class ModB:
+        class VideoWriter:
+            @staticmethod
+            def fourcc(*chars: str) -> int:
+                return 67890
+
+    assert camera._mjpg_fourcc(ModB()) == 67890
+
+    # 3. Fallback when neither attribute exists
+    class ModC:
+        pass
+
+    assert camera._mjpg_fourcc(ModC()) == 1196444237
+
+
+def test_capture_frame_daily_releases_stream_handle(tmp_path: Path) -> None:
+    import numpy as np
+
+    cfg = Config(
+        captures_dir=tmp_path / "captures",
+        mock_sensors=False,
+        capture_width=1920,
+        capture_height=1080,
+    )
+
+    fake_stream_cap = FakeCap(opened=True, frames=[np.zeros((480, 640, 3), dtype=np.uint8)])
+    fake_daily_cap = FakeCap(opened=True, frames=[np.zeros((1080, 1920, 3), dtype=np.uint8)])
+
+    # Setup active stream handle
+    with camera._CAMERA_LOCK:
+        camera._active_cap = fake_stream_cap
+
+    def mock_imwrite(path: str, *args: Any) -> bool:
+        Path(path).write_bytes(b"fake-jpeg-data")
+        return True
+
+    with (
+        patch("citruspi.camera._open_video_capture", return_value=fake_daily_cap),
+        patch("cv2.imwrite", side_effect=mock_imwrite),
+    ):
+        # Daily photo should release the active stream handle and take full-res capture
+        res = camera.capture_frame(cfg, filename="2026-10-14.jpg")
+        assert res is not None
+        assert fake_stream_cap.release_count == 1
+        assert camera._active_cap is None
+        # Verify 25 warmup frames were read from the new daily cap + 1 final frame
+        assert fake_daily_cap.read_count == 26
+        assert fake_daily_cap.release_count == 1
+
+
+

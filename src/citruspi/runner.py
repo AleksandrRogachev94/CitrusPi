@@ -82,11 +82,10 @@ def daily_tick(
         try:
             photo_bytes = target_path.read_bytes()
             if not check_frame_brightness(photo_bytes) and _last_dark_alert_date != today_str:
-                _last_dark_alert_date = today_str
                 logger.warning(
                     "Daily photo %s is dark — alerting grow light failure", target_path
                 )
-                alerts.send_ntfy(
+                if alerts.send_ntfy(
                     title="WARNING: Grow Light Failure Suspected",
                     message=(
                         f"Daily photo taken at {config.daily_capture_hour:02d}:"
@@ -95,7 +94,8 @@ def daily_tick(
                     ),
                     priority="high",
                     tags="warning",
-                )
+                ):
+                    _last_dark_alert_date = today_str
         except Exception:
             logger.exception("Error checking frame brightness for dark alert")
 

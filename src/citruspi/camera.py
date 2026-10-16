@@ -34,6 +34,15 @@ _STREAM_IDLE_TIMEOUT_SEC: float = 5.0
 _reaper_started: bool = False
 
 
+def _mjpg_fourcc(cv2_mod: Any) -> int:
+    """Resolve MJPG fourcc code across OpenCV variants without eager evaluation."""
+    if hasattr(cv2_mod, "VideoWriter_fourcc"):
+        return int(cv2_mod.VideoWriter_fourcc(*"MJPG"))
+    if hasattr(cv2_mod, "VideoWriter") and hasattr(cv2_mod.VideoWriter, "fourcc"):
+        return int(cv2_mod.VideoWriter.fourcc(*"MJPG"))
+    return ord("M") | (ord("J") << 8) | (ord("P") << 16) | (ord("G") << 24)
+
+
 def _touch_stream() -> None:
     """Update stream lease timestamp to extend camera handle retention."""
     global _last_stream_activity
@@ -108,11 +117,10 @@ def _acquire_stream_handle(config: Config) -> bool:
 
             new_cap.set(cv2.CAP_PROP_FRAME_WIDTH, min(640, config.capture_width))
             new_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, min(480, config.capture_height))
-            with contextlib.suppress(Exception):
-                new_cap.set(
-                    cv2.CAP_PROP_FOURCC,
-                    getattr(cv2, "VideoWriter_fourcc", cv2.VideoWriter.fourcc)(*"MJPG"),
-                )
+            try:
+                new_cap.set(cv2.CAP_PROP_FOURCC, _mjpg_fourcc(cv2))
+            except Exception as exc:
+                logger.debug("Could not set MJPG fourcc on stream handle: %s", exc)
 
             _active_cap = new_cap
             _touch_stream()
@@ -207,11 +215,10 @@ def _open_video_capture(config: Config) -> Any:
     except Exception:
         cap = cv2.VideoCapture(config.camera_device_index)
     if cap.isOpened():
-        with contextlib.suppress(Exception):
-            cap.set(
-                cv2.CAP_PROP_FOURCC,
-                getattr(cv2, "VideoWriter_fourcc", cv2.VideoWriter.fourcc)(*"MJPG"),
-            )
+        try:
+            cap.set(cv2.CAP_PROP_FOURCC, _mjpg_fourcc(cv2))
+        except Exception as exc:
+            logger.debug("Could not set MJPG fourcc on camera device: %s", exc)
         with contextlib.suppress(Exception):
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     return cap
@@ -243,10 +250,15 @@ def capture_frame(config: Config, filename: str) -> Path | None:
             import cv2  # type: ignore[import-untyped]
 
             frame = None
+            is_daily = filename != "manual.jpg"
 
-            # Case A: Live stream is already open — reuse active device handle at stream resolution
-            # to avoid UVC camera instability and frame drops from live resolution changes.
-            if _active_cap is not None and getattr(_active_cap, "isOpened", lambda: False)():
+            # Case A: Live stream reuse is ONLY used for manual ad-hoc snapshots.
+            # Daily scheduled timelapse photos ALWAYS release the stream handle to ensure
+            # full configured resolution (e.g. 1080p) and 25-frame auto-exposure warmup.
+            # The live stream automatically re-acquires the device on its next iteration.
+            if is_daily:
+                _release_stream_handle_locked()
+            elif _active_cap is not None and getattr(_active_cap, "isOpened", lambda: False)():
                 ret, frame = _active_cap.read()
                 if not ret or frame is None:
                     logger.warning(
@@ -255,7 +267,8 @@ def capture_frame(config: Config, filename: str) -> Path | None:
                     _release_stream_handle_locked()
                     frame = None
 
-            # Case B: Stream is not open — open device directly with auto-exposure warmup
+            # Case B: Stream is not open (or was released for daily photo)
+            # — open device directly with warmup
             if frame is None:
                 cap = _open_video_capture(config)
                 if not cap.isOpened():
@@ -272,11 +285,10 @@ def capture_frame(config: Config, filename: str) -> Path | None:
                     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.capture_height)
 
                     # Re-assert MJPG fourcc after setting resolution (required by some V4L2)
-                    with contextlib.suppress(Exception):
-                        cap.set(
-                            cv2.CAP_PROP_FOURCC,
-                            getattr(cv2, "VideoWriter_fourcc", cv2.VideoWriter.fourcc)(*"MJPG"),
-                        )
+                    try:
+                        cap.set(cv2.CAP_PROP_FOURCC, _mjpg_fourcc(cv2))
+                    except Exception as exc:
+                        logger.debug("Could not set MJPG fourcc on capture: %s", exc)
 
                     # Discard 25 frames (~1 sec at 30 fps) to allow USB webcam ISP
                     # (auto-exposure, auto-white balance, and motorized autofocus)

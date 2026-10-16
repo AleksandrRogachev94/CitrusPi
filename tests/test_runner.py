@@ -189,3 +189,32 @@ def test_daily_tick_runs_brightness_check_once_per_day_for_bright_photo(
         assert mock_check.call_count == 2
 
 
+def test_daily_tick_dark_frame_retries_when_ntfy_fails(tmp_path: Path) -> None:
+    cfg = Config(
+        mock_sensors=True,
+        data_dir=tmp_path / "data",
+        captures_dir=tmp_path / "captures",
+        ntfy_topic="test-topic",
+        daily_capture_hour=22,
+        daily_capture_minute=0,
+    )
+    cfg.captures_dir.mkdir(parents=True, exist_ok=True)
+    today_photo = cfg.captures_dir / "2026-10-14.jpg"
+    today_photo.write_bytes(b"dummy photo content")
+
+    store = Store(cfg.data_dir)
+    alerts = AlertManager(cfg)
+    target_time = datetime(2026, 10, 14, 22, 5)
+
+    with (
+        patch("citruspi.runner.check_frame_brightness", return_value=False),
+        patch.object(alerts, "send_ntfy", return_value=False) as mock_ntfy,
+    ):
+        daily_tick(cfg, store, now=target_time, alerts=alerts)
+        assert mock_ntfy.call_count == 1
+        # Because send_ntfy failed, _last_dark_alert_date was NOT set to today
+        import citruspi.runner as r
+        assert r._last_dark_alert_date == ""
+
+
+

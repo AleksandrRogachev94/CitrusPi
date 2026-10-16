@@ -6,6 +6,7 @@ for local UI development. Real mode strictly queries physical hardware.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import math
 import random
@@ -314,6 +315,10 @@ class SensorHub:
                 except Exception:
                     logger.exception("BME280 read error")
                     self._bme = None
+                    if self._bus is not None:
+                        with contextlib.suppress(Exception):
+                            self._bus.close()
+                        self._bus = None
 
             if self._ds18b20:
                 try:

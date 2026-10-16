@@ -221,3 +221,24 @@ def test_bme280_calibration_sign_extension() -> None:
     assert bme._cal["H5"] == -2045
 
 
+def test_sensorhub_bme_read_error_closes_bus(tmp_path: Path) -> None:
+    from unittest.mock import MagicMock
+
+    cfg = Config(mock_sensors=False, w1_devices_dir=tmp_path)
+    hub = SensorHub(cfg)
+
+    mock_bus = MagicMock()
+    mock_bme = MagicMock()
+    mock_bme.read.side_effect = OSError("I2C read failure")
+
+    hub._bus = mock_bus
+    hub._bme = mock_bme
+
+    reading = hub.read()
+    assert reading.temp_c is None
+    assert hub._bme is None
+    assert hub._bus is None
+    mock_bus.close.assert_called_once()
+
+
+

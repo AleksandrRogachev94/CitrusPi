@@ -121,6 +121,7 @@ function stopStream() {
     if (livePill) livePill.style.display = 'none';
 
     if (img) {
+        img.onerror = null;
         img.removeAttribute('src');
         if (defaultPhotoUrl) {
             img.src = defaultPhotoUrl;
@@ -146,6 +147,15 @@ function startStream() {
     const btn = document.getElementById('toggle-stream-btn');
 
     if (!img) return;
+    img.onerror = () => {
+        if (btn && btn.classList.contains('btn-active')) {
+            stopStream();
+            if (caption) {
+                caption.style.display = 'block';
+                caption.innerHTML = '<span class="muted">Live stream session ended. Click <strong>▶ Live View</strong> to resume.</span>';
+            }
+        }
+    };
     img.src = '/stream?t=' + Date.now();
     img.style.display = 'block';
     if (emptyState) emptyState.style.display = 'none';
