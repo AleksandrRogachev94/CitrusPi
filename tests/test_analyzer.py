@@ -231,7 +231,10 @@ def test_api_key_sent_as_header_and_absent_from_url(
         assert call_args.kwargs["timeout"] == 60.0 or call_args.kwargs["timeout"] == 60
         gen_config = call_args.kwargs["json"]["generationConfig"]
         assert gen_config["responseMimeType"] == "application/json"
-        assert gen_config["temperature"] == 0.2
+        assert gen_config["mediaResolution"] == "MEDIA_RESOLUTION_HIGH"
+        assert "responseSchema" in gen_config
+        assert gen_config["responseSchema"]["propertyOrdering"] == ["summary", "leaf_drop", "status"]
+        assert "systemInstruction" in call_args.kwargs["json"]
 
 
 # ── 3. Malformed and Fenced JSON Handling ─────────────────────────────────────
@@ -244,9 +247,9 @@ def test_fenced_json_response_parsed_and_saved(
 
     fenced_content = """```json
 {
-  "status": "watch",
+  "summary": "Sumo tree has 2 fallen leaves on soil surface. No yellowing.",
   "leaf_drop": true,
-  "summary": "Sumo tree has 2 fallen leaves on soil surface. No yellowing."
+  "status": "watch"
 }
 ```"""
 
@@ -279,7 +282,7 @@ def test_fenced_json_response_parsed_and_saved(
         assert "Sumo tree" in report["summary"]
 
 
-def test_invalid_status_defaults_to_watch(
+def test_invalid_status_rejected_returns_none(
     test_config: Config, store: Store
 ) -> None:
     today_photo = _make_dummy_photo(test_config.captures_dir / "2026-10-13.jpg")
@@ -308,12 +311,8 @@ def test_invalid_status_defaults_to_watch(
 
     with patch("httpx.post", return_value=mock_resp):
         result = run_daily_analysis(test_config, store, today_photo)
-
-        assert result is not None
-        assert result["status"] == "watch"
-        report = store.latest_report()
-        assert report is not None
-        assert report["status"] == "watch"
+        assert result is None
+        assert store.latest_report() is None
 
 
 def test_malformed_json_returns_none_without_raising(
@@ -441,3 +440,64 @@ def test_parse_analysis_response() -> None:
 
     # Invalid JSON
     assert parse_analysis_response("not valid json") is None
+
+    # String boolean rejected (strict bool required)
+    assert parse_analysis_response('{"status": "healthy", "leaf_drop": "false", "summary": "ok"}') is None
+
+    # Empty / whitespace summary rejected
+    assert parse_analysis_response('{"status": "healthy", "leaf_drop": false, "summary": "   "}') is None
+
+    # Unknown status enum rejected
+    assert parse_analysis_response('{"status": "unknown", "leaf_drop": false, "summary": "ok"}') is None
+
+
+def test_call_gemini_api_ignores_thought_parts() -> None:
+    from citruspi.analyzer import call_gemini_api
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "candidates": [
+            {
+                "finishReason": "STOP",
+                "content": {
+                    "parts": [
+                        {"thought": True, "text": "Thinking about citrus trees..."},
+                        {"text": '{"status": "healthy", '},
+                        {"text": '"leaf_drop": false, "summary": "Looks good"}'},
+                    ]
+                },
+            }
+        ]
+    }
+
+    with patch("httpx.post", return_value=mock_resp):
+        res = call_gemini_api("gemini-3.8-flash", "test-key", [{"text": "prompt"}])
+        assert res == '{"status": "healthy", "leaf_drop": false, "summary": "Looks good"}'
+
+
+def test_call_gemini_api_max_tokens_returns_none() -> None:
+    from citruspi.analyzer import call_gemini_api
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "candidates": [
+            {
+                "finishReason": "MAX_TOKENS",
+                "content": {"parts": [{"text": '{"status": "health'}]},
+            }
+        ]
+    }
+
+    with patch("httpx.post", return_value=mock_resp):
+        res = call_gemini_api("gemini-3.8-flash", "test-key", [{"text": "prompt"}])
+        assert res is None
+
+
+def test_get_system_instruction_formats_layout(test_config: Config) -> None:
+    from citruspi.analyzer import get_system_instruction
+
+    instruction = get_system_instruction(test_config)
+    assert test_config.plant_layout in instruction
+    assert "<<PLANT_LAYOUT>>" not in instruction

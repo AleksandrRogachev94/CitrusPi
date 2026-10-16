@@ -144,49 +144,120 @@ def strip_code_fences(text: str) -> str:
     return text
 
 
+ANALYSIS_SYSTEM_INSTRUCTION = (
+    "You monitor potted citrus trees in a grow tent from a fixed camera. Each request has "
+    "today's photo (the subject) and, when available, photos from about 1 and 7 days ago, "
+    "each labelled with its date. Judge each tree's condition today, using the earlier photos "
+    "to see what changed. Report only what is visible; do not guess causes.\n\n"
+    "Plant layout:\n<<PLANT_LAYOUT>>\n\n"
+    "For each tree assess:\n"
+    "- Condition today: drooping or wilting, leaf curl, yellowing or browning, spotting, thin branches.\n"
+    "- Change since the earlier photos: newly fallen leaves (floor, pot) and anything new, better or "
+    "worse. The 1-day photo shows sudden events, the 7-day photo slow trends.\n"
+    "A problem that was already there and is still there is ongoing, not 'no change'.\n\n"
+    "Rules:\n"
+    "- Judge structure directly. Judge colour only relative to the same tree in the other photos "
+    "(grow lights tint colour).\n"
+    "- Ignore camera shift, glare, condensation, exposure, moved objects and new growth.\n"
+    "- If you can't tell a real change from an artefact, or the view is too poor to judge, "
+    "use 'watch' and say so.\n"
+    "- If only today's photo is provided, describe condition and claim no change.\n\n"
+    "Status (overall = worst tree):\n"
+    "- healthy: nothing wrong today, nothing new.\n"
+    "- watch: minor or ambiguous problem (slight curl, a few yellowing leaves, 1-2 new fallen leaves).\n"
+    "- alert: clear problem (several new fallen leaves, obvious wilting, widespread yellowing or "
+    "browning), or a minor one clearly worsening.\n\n"
+    "Summary: one short line per tree: condition today; change (better, same, worse, none). "
+    "Write 'No visible change.' only for a healthy, unchanged tree."
+)
+
+ANALYSIS_RESPONSE_SCHEMA: dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {
+        "summary": {
+            "type": "STRING",
+            "description": "One short line per tree: condition today, then change since earlier photos.",
+        },
+        "leaf_drop": {
+            "type": "BOOLEAN",
+            "description": (
+                "Leaves newly fallen or missing since an earlier photo. "
+                "Leaves already on the floor earlier don't count. False if no earlier photo."
+            ),
+        },
+        "status": {
+            "type": "STRING",
+            "enum": ["healthy", "watch", "alert"],
+            "description": "Overall status: the worst status among the trees.",
+        },
+    },
+    "required": ["summary", "leaf_drop", "status"],
+    "propertyOrdering": ["summary", "leaf_drop", "status"],
+}
+
+
+def get_system_instruction(config: Config) -> str:
+    """Format the system instruction with the configured plant layout."""
+    layout = (
+        config.plant_layout.strip()
+        if config.plant_layout
+        else "Not specified (evaluate visible trees from left to right)."
+    )
+    return ANALYSIS_SYSTEM_INSTRUCTION.replace("<<PLANT_LAYOUT>>", layout)
+
+
 def build_analysis_request(
     config: Config,
-    store: Store,
-    today_path: Path,
-    today_date: date,
+    arg2: Any,
+    arg3: Any,
+    arg4: Any = None,
 ) -> list[dict[str, Any]]:
-    """Build the Gemini generateContent parts list for the daily comparison."""
+    """Build the Gemini generateContent parts list for the daily comparison.
+
+    Accepts either (config, today_path, today_date) or (config, store, today_path, today_date).
+    """
+    if isinstance(arg2, (Path, str)):
+        today_path = Path(arg2)
+        today_date = arg3 if isinstance(arg3, date) else datetime.strptime(str(arg3), "%Y-%m-%d").date()
+    else:
+        today_path = Path(arg3)
+        today_date = arg4 if isinstance(arg4, date) else datetime.strptime(str(arg4), "%Y-%m-%d").date()
+
     frames = select_analysis_frames(config.captures_dir, today_path, today_date)
 
-    summary = store.summary_last_hours(hours=24)
-    t_min, t_max = summary.get("temp_min_f"), summary.get("temp_max_f")
-    r_min, r_max = summary.get("root_temp_min_f"), summary.get("root_temp_max_f")
-
-    canopy_info = (
-        f"{t_min:.1f}°F min / {t_max:.1f}°F max"
-        if t_min is not None and t_max is not None
-        else "N/A"
-    )
-    root_info = (
-        f"{r_min:.1f}°F min / {r_max:.1f}°F max"
-        if r_min is not None and r_max is not None
-        else "N/A"
-    )
-
-    prompt = (
-        f"Plant layout: {config.plant_layout}\n"
-        f"24h temperatures — Canopy: {canopy_info}, Root: {root_info}\n\n"
-        "Report per tree using the layout. "
-        "Describe ONLY visible physical differences between frames "
-        "(fallen leaves on the floor or pots, curl, yellowing, wilt). "
-        "If nothing clearly differs, say 'No visible change'. "
-        "Do NOT speculate about causes.\n\n"
-        "Output strictly valid JSON with this structure:\n"
-        '{"status": "healthy"|"watch"|"alert", "leaf_drop": bool, "summary": "str"}'
-    )
-
     parts: list[dict[str, Any]] = []
+    has_t7 = False
+    has_t1 = False
+
     for f_date, f_path, delta in frames:
-        delta_str = "today" if delta == 0 else f"{abs(delta)}d ago"
-        parts.append({"text": f"Frame {f_date} ({delta_str}):"})
+        if delta == 0:
+            delta_str = "today"
+        else:
+            delta_str = f"{abs(delta)}d ago"
+            if abs(delta) >= 5:
+                has_t7 = True
+            else:
+                has_t1 = True
+
+        parts.append({"text": f"Photo {f_date} ({delta_str}):"})
         b64_img = base64.b64encode(downscale_image(f_path.read_bytes())).decode("ascii")
         parts.append({"inlineData": {"mimeType": "image/jpeg", "data": b64_img}})
-    parts.append({"text": prompt})
+
+    if has_t7 and has_t1:
+        baseline_info = "7-day and 1-day reference photos available."
+    elif has_t1:
+        baseline_info = "1-day reference photo available."
+    elif has_t7:
+        baseline_info = "7-day reference photo available."
+    else:
+        baseline_info = "No prior reference photos available (today's photo only)."
+
+    parts.append({
+        "text": (
+            f"Today is {today_date}. Reference photos: {baseline_info}\n"
+            "Report each tree: current condition first, then change since the earlier photos."
+        )
+    })
     return parts
 
 
@@ -226,17 +297,30 @@ def call_gemini_api(
     api_key: str,
     parts: list[dict[str, Any]],
     timeout: float = 60.0,
+    system_instruction: str | None = None,
+    response_schema: dict[str, Any] | None = None,
 ) -> str | None:
     """Call Google Gemini generateContent API and return raw response text."""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    gen_config: dict[str, Any] = {
+        "responseMimeType": "application/json",
+        "responseSchema": response_schema or ANALYSIS_RESPONSE_SCHEMA,
+        "mediaResolution": "MEDIA_RESOLUTION_HIGH",
+    }
+    payload: dict[str, Any] = {
+        "contents": [{"role": "user", "parts": parts}],
+        "generationConfig": gen_config,
+    }
+    if system_instruction:
+        payload["systemInstruction"] = {
+            "parts": [{"text": system_instruction}]
+        }
+
     try:
         response = httpx.post(
             url,
             headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
-            json={
-                "contents": [{"parts": parts}],
-                "generationConfig": {"responseMimeType": "application/json", "temperature": 0.2},
-            },
+            json=payload,
             timeout=timeout,
         )
         response.raise_for_status()
@@ -259,9 +343,27 @@ def call_gemini_api(
     data = response.json()
     candidates = data.get("candidates", [])
     if not candidates:
+        prompt_feedback = data.get("promptFeedback", {})
+        if "blockReason" in prompt_feedback:
+            logger.warning("Gemini prompt blocked: %s", prompt_feedback.get("blockReason"))
         return None
 
-    return candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+    candidate = candidates[0]
+    finish_reason = candidate.get("finishReason")
+    if finish_reason == "MAX_TOKENS":
+        logger.warning("Gemini generation hit MAX_TOKENS")
+        return None
+
+    content = candidate.get("content", {})
+    parts_out = content.get("parts", [])
+    text_parts = [
+        p.get("text", "")
+        for p in parts_out
+        if isinstance(p, dict) and "text" in p and not p.get("thought", False)
+    ]
+    raw_output = "".join(text_parts)
+    logger.debug("Gemini raw response: %s", raw_output)
+    return raw_output
 
 
 def parse_analysis_response(raw_text: str) -> dict[str, Any] | None:
@@ -276,17 +378,25 @@ def parse_analysis_response(raw_text: str) -> dict[str, Any] | None:
         logger.warning("AI model returned non-dict JSON: %s", type(parsed).__name__)
         return None
 
-    status = str(parsed.get("status", "watch")).strip().lower()
+    status = str(parsed.get("status", "")).strip().lower()
     if status not in {"healthy", "watch", "alert"}:
-        status = "watch"
+        logger.warning("Invalid or missing status in AI response: %s", parsed.get("status"))
+        return None
 
-    leaf_drop = bool(parsed.get("leaf_drop", False))
-    summary_text = str(parsed.get("summary", "")).strip()
+    leaf_drop = parsed.get("leaf_drop")
+    if not isinstance(leaf_drop, bool):
+        logger.warning("Missing or non-boolean leaf_drop in AI response: %s", leaf_drop)
+        return None
+
+    summary = parsed.get("summary")
+    if not isinstance(summary, str) or not summary.strip():
+        logger.warning("Missing or empty summary in AI response")
+        return None
 
     return {
         "status": status,
         "leaf_drop": leaf_drop,
-        "summary": summary_text,
+        "summary": summary.strip(),
     }
 
 
@@ -340,8 +450,14 @@ def run_daily_analysis(
                 "summary": str(dark_verdict["summary"]),
             }
 
-        parts = build_analysis_request(config, store, today_path, today_date)
-        raw_text = call_gemini_api(config.ai_model, config.ai_api_key, parts)
+        parts = build_analysis_request(config, today_path, today_date)
+        system_instruction = get_system_instruction(config)
+        raw_text = call_gemini_api(
+            config.ai_model,
+            config.ai_api_key,
+            parts,
+            system_instruction=system_instruction,
+        )
         if not raw_text:
             return None
 
