@@ -30,6 +30,7 @@ def test_default_config() -> None:
     assert cfg.plant_layout == ""
     assert cfg.capture_width == 1920
     assert cfg.capture_height == 1080
+    assert cfg.stream_max_session_sec == 300
 
 
 def test_missing_config_raises_file_not_found() -> None:

@@ -319,7 +319,7 @@ def run_daily_analysis(
 
         photo_bytes = today_path.read_bytes()
         if not check_frame_brightness(photo_bytes):
-            verdict = {
+            dark_verdict: dict[str, Any] = {
                 "status": "watch",
                 "leaf_drop": False,
                 "summary": (
@@ -329,15 +329,15 @@ def run_daily_analysis(
             }
             store.save_daily_report(
                 today_str,
-                verdict["status"],
-                verdict["summary"],
-                verdict["leaf_drop"],
+                str(dark_verdict["status"]),
+                str(dark_verdict["summary"]),
+                bool(dark_verdict["leaf_drop"]),
             )
             return {
                 "date": today_str,
-                "status": verdict["status"],
-                "leaf_drop": verdict["leaf_drop"],
-                "summary": verdict["summary"],
+                "status": str(dark_verdict["status"]),
+                "leaf_drop": bool(dark_verdict["leaf_drop"]),
+                "summary": str(dark_verdict["summary"]),
             }
 
         parts = build_analysis_request(config, store, today_path, today_date)
@@ -345,15 +345,15 @@ def run_daily_analysis(
         if not raw_text:
             return None
 
-        verdict = parse_analysis_response(raw_text)
+        verdict: dict[str, Any] | None = parse_analysis_response(raw_text)
         if not verdict:
             return None
 
         store.save_daily_report(
             today_str,
-            verdict["status"],
-            verdict["summary"],
-            verdict["leaf_drop"],
+            str(verdict["status"]),
+            str(verdict["summary"]),
+            bool(verdict["leaf_drop"]),
         )
 
         return {

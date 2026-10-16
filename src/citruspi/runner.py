@@ -29,6 +29,7 @@ _ai_daily_attempts: int = 0
 _ai_attempt_date: str = ""
 _ai_permanent_failure_date: str = ""
 _last_dark_alert_date: str = ""
+_last_brightness_check_date: str = ""
 
 
 def sensor_tick(
@@ -62,7 +63,7 @@ def daily_tick(
 ) -> Path | None:
     """Execute a single daily timelapse check: schedule -> capture -> AI analysis."""
     global _last_ai_failure_time, _ai_daily_attempts, _ai_attempt_date, _ai_permanent_failure_date
-    global _last_dark_alert_date
+    global _last_dark_alert_date, _last_brightness_check_date
 
     curr_now = now or datetime.now()
     today_str = curr_now.strftime("%Y-%m-%d")
@@ -72,10 +73,15 @@ def daily_tick(
         logger.info("Daily timelapse capture taken: %s", photo_path)
 
     target_path = photo_path or (config.captures_dir / f"{today_str}.jpg")
-    if target_path.is_file() and alerts is not None and _last_dark_alert_date != today_str:
+    if (
+        target_path.is_file()
+        and alerts is not None
+        and _last_brightness_check_date != today_str
+    ):
+        _last_brightness_check_date = today_str
         try:
             photo_bytes = target_path.read_bytes()
-            if not check_frame_brightness(photo_bytes):
+            if not check_frame_brightness(photo_bytes) and _last_dark_alert_date != today_str:
                 _last_dark_alert_date = today_str
                 logger.warning(
                     "Daily photo %s is dark — alerting grow light failure", target_path

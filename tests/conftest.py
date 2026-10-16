@@ -16,3 +16,7 @@ def _reset_module_state() -> None:
     runner._ai_attempt_date = ""
     runner._ai_permanent_failure_date = ""
     runner._last_dark_alert_date = ""
+    runner._last_brightness_check_date = ""
+    with camera._CAMERA_LOCK:
+        camera._release_stream_handle_locked()
+    camera._last_stream_activity = 0.0

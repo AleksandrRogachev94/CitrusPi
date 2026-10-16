@@ -22,7 +22,7 @@
             </div>
             <div class="header-actions">
                 <button type="button" id="toggle-stream-btn" class="btn-secondary" onclick="toggleStream()">
-                    ▶ Live Stream
+                    ▶ Live View
                 </button>
             </div>
         </div>
@@ -42,7 +42,7 @@
                 <div id="camera-empty" class="camera-empty-state">
                     <span class="empty-icon">📷</span>
                     <span>No daily photo captured yet.</span>
-                    <span class="muted small">Click "▶ Live Stream" to view camera feed</span>
+                    <span class="muted small">Click "▶ Live View" to view camera feed</span>
                 </div>
                 <div id="camera-caption" class="camera-caption" style="display:none;"></div>
             {% endif %}
@@ -107,18 +107,21 @@
 const defaultPhotoUrl = "{{ photo.url if photo else '' }}";
 const defaultCaptionDate = "{{ photo.date if photo else '' }}";
 
-function toggleStream() {
+function stopStream() {
     const img = document.getElementById('camera-display');
     const emptyState = document.getElementById('camera-empty');
     const livePill = document.getElementById('stream-live-pill');
     const caption = document.getElementById('camera-caption');
     const btn = document.getElementById('toggle-stream-btn');
 
-    if (btn.classList.contains('btn-active')) {
-        // Stop stream -> restore still photo
-        livePill.style.display = 'none';
-        btn.textContent = '▶ Live Stream';
+    if (btn) {
+        btn.textContent = '▶ Live View';
         btn.classList.remove('btn-active');
+    }
+    if (livePill) livePill.style.display = 'none';
+
+    if (img) {
+        img.removeAttribute('src');
         if (defaultPhotoUrl) {
             img.src = defaultPhotoUrl;
             img.style.display = 'block';
@@ -128,25 +131,59 @@ function toggleStream() {
                 caption.innerHTML = `Latest timelapse frame: <strong>${defaultCaptionDate}</strong>`;
             }
         } else {
-            img.src = '';
             img.style.display = 'none';
             if (emptyState) emptyState.style.display = 'flex';
             if (caption) caption.style.display = 'none';
         }
-    } else {
-        // Start live stream
-        img.src = '/stream';
-        img.style.display = 'block';
-        if (emptyState) emptyState.style.display = 'none';
-        if (caption) {
-            caption.style.display = 'block';
-            caption.innerHTML = `<strong>Live Tent Feed</strong> (On-demand ~5 FPS)`;
-        }
-        livePill.style.display = 'flex';
-        btn.textContent = '⏹ Stop Stream';
+    }
+}
+
+function startStream() {
+    const img = document.getElementById('camera-display');
+    const emptyState = document.getElementById('camera-empty');
+    const livePill = document.getElementById('stream-live-pill');
+    const caption = document.getElementById('camera-caption');
+    const btn = document.getElementById('toggle-stream-btn');
+
+    if (!img) return;
+    img.src = '/stream?t=' + Date.now();
+    img.style.display = 'block';
+    if (emptyState) emptyState.style.display = 'none';
+    if (caption) {
+        caption.style.display = 'block';
+        caption.innerHTML = `<strong>Live Tent Feed</strong> (On-demand ~5 FPS)`;
+    }
+    if (livePill) livePill.style.display = 'flex';
+    if (btn) {
+        btn.textContent = '⏹ Stop';
         btn.classList.add('btn-active');
     }
 }
+
+function toggleStream() {
+    const btn = document.getElementById('toggle-stream-btn');
+    if (btn && btn.classList.contains('btn-active')) {
+        stopStream();
+    } else {
+        startStream();
+    }
+}
+
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        const btn = document.getElementById('toggle-stream-btn');
+        if (btn && btn.classList.contains('btn-active')) {
+            stopStream();
+        }
+    }
+});
+
+window.addEventListener('pagehide', () => {
+    const btn = document.getElementById('toggle-stream-btn');
+    if (btn && btn.classList.contains('btn-active')) {
+        stopStream();
+    }
+});
 
 // ── Chart.js Dual Visualizations (Anchored Scales, Zero Muddy Fills) ─
 // ── Chart.js Dual Visualizations (Anchored Scales, Multi-day Ranges) ─

@@ -146,3 +146,46 @@ def test_daily_tick_alerts_on_dark_frame(tmp_path: Path) -> None:
         daily_tick(cfg, store, now=target_time, alerts=alerts)
         assert mock_ntfy.call_count == 1
 
+
+def test_daily_tick_runs_brightness_check_once_per_day_for_bright_photo(
+    tmp_path: Path,
+) -> None:
+    cfg = Config(
+        mock_sensors=True,
+        data_dir=tmp_path / "data",
+        captures_dir=tmp_path / "captures",
+        ntfy_topic="test-topic",
+        daily_capture_hour=22,
+        daily_capture_minute=0,
+    )
+    cfg.captures_dir.mkdir(parents=True, exist_ok=True)
+    today_photo = cfg.captures_dir / "2026-10-14.jpg"
+    today_photo.write_bytes(b"dummy photo content")
+
+    store = Store(cfg.data_dir)
+    alerts = AlertManager(cfg)
+    target_time = datetime(2026, 10, 14, 22, 5)
+
+    with (
+        patch("citruspi.runner.check_frame_brightness", return_value=True) as mock_check,
+        patch.object(alerts, "send_ntfy") as mock_ntfy,
+    ):
+        # First tick of the day: checks brightness
+        daily_tick(cfg, store, now=target_time, alerts=alerts)
+        mock_check.assert_called_once()
+        mock_ntfy.assert_not_called()
+
+        # Subsequent ticks on the same day: brightness check must NOT run again
+        daily_tick(cfg, store, now=target_time, alerts=alerts)
+        daily_tick(cfg, store, now=target_time, alerts=alerts)
+        assert mock_check.call_count == 1
+
+        # Next day rollover: new capture taken and checked once
+        tomorrow_time = datetime(2026, 10, 15, 22, 5)
+        tomorrow_photo = cfg.captures_dir / "2026-10-15.jpg"
+        tomorrow_photo.write_bytes(b"tomorrow photo content")
+
+        daily_tick(cfg, store, now=tomorrow_time, alerts=alerts)
+        assert mock_check.call_count == 2
+
+

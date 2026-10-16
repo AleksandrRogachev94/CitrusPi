@@ -33,6 +33,7 @@ class Config:
     daily_capture_hour: int = 22     # 22:00 (10 PM)
     daily_capture_minute: int = 0
     stream_fps: int = 5              # 5 fps live stream preserves Pi Zero 2W CPU
+    stream_max_session_sec: int = 300  # Max continuous live stream duration (5 min)
 
     # ── Storage ───────────────────────────────────────────────────────
     data_dir: Path = field(default_factory=lambda: _PROJECT_ROOT / "data")

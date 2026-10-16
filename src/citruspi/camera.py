@@ -24,12 +24,138 @@ from citruspi.config import Config
 
 logger = logging.getLogger(__name__)
 
-# Mutex to ensure simultaneous web requests and daily capture don't conflict
-_CAMERA_LOCK = threading.Lock()
+# Reentrant mutex for camera operations (avoids deadlock if GC finalizer runs on same thread)
+_CAMERA_LOCK = threading.RLock()
 
 # Reference to active stream capture handle to allow snapshot reuse without device collisions
 _active_cap: Any = None
-_active_stream_count: int = 0
+_last_stream_activity: float = 0.0  # time.monotonic()
+_STREAM_IDLE_TIMEOUT_SEC: float = 5.0
+_reaper_started: bool = False
+
+
+def _touch_stream() -> None:
+    """Update stream lease timestamp to extend camera handle retention."""
+    global _last_stream_activity
+    _last_stream_activity = time.monotonic()
+
+
+def _release_stream_handle_locked() -> None:
+    """Release active stream capture handle. Caller MUST hold _CAMERA_LOCK."""
+    global _active_cap
+    if _active_cap is not None:
+        with contextlib.suppress(Exception):
+            _active_cap.release()
+        _active_cap = None
+
+
+def _release_if_idle() -> None:
+    """Release active capture handle if stream has been idle past timeout."""
+    with _CAMERA_LOCK:
+        if (
+            _active_cap is not None
+            and (time.monotonic() - _last_stream_activity) > _STREAM_IDLE_TIMEOUT_SEC
+        ):
+            logger.info("Releasing idle camera stream handle (no stream activity)")
+            _release_stream_handle_locked()
+
+
+def _reaper_loop() -> None:
+    """Background daemon loop periodically checking for idle camera streams."""
+    while True:
+        time.sleep(1.0)
+        _release_if_idle()
+
+
+def _ensure_reaper() -> None:
+    """Ensure background stream reaper thread is running."""
+    global _reaper_started
+    with _CAMERA_LOCK:
+        if not _reaper_started:
+            thread = threading.Thread(
+                target=_reaper_loop,
+                daemon=True,
+                name="citruspi-stream-reaper",
+            )
+            thread.start()
+            _reaper_started = True
+
+
+def _acquire_stream_handle(config: Config) -> bool:
+    """Acquire or touch active capture handle for MJPEG streaming.
+
+    Returns True if an open handle is available, False otherwise.
+    Never leaves an open handle in _active_cap on failure.
+    """
+    global _active_cap
+    with _CAMERA_LOCK:
+        if _active_cap is not None and getattr(_active_cap, "isOpened", lambda: False)():
+            _touch_stream()
+            return True
+
+        _release_stream_handle_locked()
+
+        new_cap = None
+        try:
+            import cv2  # type: ignore[import-untyped]
+
+            new_cap = _open_video_capture(config)
+            if not new_cap or not getattr(new_cap, "isOpened", lambda: False)():
+                if new_cap is not None:
+                    with contextlib.suppress(Exception):
+                        new_cap.release()
+                return False
+
+            new_cap.set(cv2.CAP_PROP_FRAME_WIDTH, min(640, config.capture_width))
+            new_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, min(480, config.capture_height))
+            with contextlib.suppress(Exception):
+                new_cap.set(
+                    cv2.CAP_PROP_FOURCC,
+                    getattr(cv2, "VideoWriter_fourcc", cv2.VideoWriter.fourcc)(*"MJPG"),
+                )
+
+            _active_cap = new_cap
+            _touch_stream()
+            _ensure_reaper()
+            return True
+        except Exception:
+            if new_cap is not None:
+                with contextlib.suppress(Exception):
+                    new_cap.release()
+            return False
+
+
+def _read_stream_frame() -> Any:
+    """Read next frame from active stream handle with lease touch."""
+    with _CAMERA_LOCK:
+        if _active_cap is None or not getattr(_active_cap, "isOpened", lambda: False)():
+            return None
+        ret, frame = _active_cap.read()
+        if ret and frame is not None:
+            _touch_stream()
+            return frame
+        return None
+
+
+def _multipart_part(jpeg: bytes) -> bytes:
+    """Format JPEG bytes into a standard MJPEG multipart boundary."""
+    return b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n"
+
+
+def _placeholder_stream(
+    label: str,
+    delay: float,
+    max_session: float,
+    regenerate: bool = False,
+) -> Generator[bytes, None, None]:
+    """Yield placeholder frames until max_session duration expires."""
+    started = time.monotonic()
+    frame_bytes = _get_placeholder_jpeg(label) if not regenerate else b""
+    while (time.monotonic() - started) < max_session:
+        if regenerate:
+            frame_bytes = _get_placeholder_jpeg(label)
+        yield _multipart_part(frame_bytes)
+        time.sleep(delay)
 
 
 # Minimal 1x1 valid JPEG fallback if numpy/cv2 are not installed
@@ -82,7 +208,10 @@ def _open_video_capture(config: Config) -> Any:
         cap = cv2.VideoCapture(config.camera_device_index)
     if cap.isOpened():
         with contextlib.suppress(Exception):
-            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+            cap.set(
+                cv2.CAP_PROP_FOURCC,
+                getattr(cv2, "VideoWriter_fourcc", cv2.VideoWriter.fourcc)(*"MJPG"),
+            )
         with contextlib.suppress(Exception):
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     return cap
@@ -117,14 +246,13 @@ def capture_frame(config: Config, filename: str) -> Path | None:
 
             # Case A: Live stream is already open — reuse active device handle at stream resolution
             # to avoid UVC camera instability and frame drops from live resolution changes.
-            if _active_cap is not None and _active_cap.isOpened():
+            if _active_cap is not None and getattr(_active_cap, "isOpened", lambda: False)():
                 ret, frame = _active_cap.read()
                 if not ret or frame is None:
                     logger.warning(
                         "Could not read frame from active stream handle; releasing handle"
                     )
-                    _active_cap.release()
-                    _active_cap = None
+                    _release_stream_handle_locked()
                     frame = None
 
             # Case B: Stream is not open — open device directly with auto-exposure warmup
@@ -143,12 +271,15 @@ def capture_frame(config: Config, filename: str) -> Path | None:
                     cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.capture_width)
                     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.capture_height)
 
-                    # Re-assert MJPG fourcc after setting resolution (required by some V4L2 drivers)
+                    # Re-assert MJPG fourcc after setting resolution (required by some V4L2)
                     with contextlib.suppress(Exception):
-                        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+                        cap.set(
+                            cv2.CAP_PROP_FOURCC,
+                            getattr(cv2, "VideoWriter_fourcc", cv2.VideoWriter.fourcc)(*"MJPG"),
+                        )
 
                     # Discard 25 frames (~1 sec at 30 fps) to allow USB webcam ISP
-                    # (auto-exposure, auto-white balance, and motorized autofocus like on Logitech C930e)
+                    # (auto-exposure, auto-white balance, and motorized autofocus)
                     # to properly settle before snapping.
                     for _ in range(25):
                         cap.read()
@@ -225,12 +356,11 @@ def generate_mjpeg_stream(config: Config) -> Generator[bytes, None, None]:
     """Yield MJPEG multipart stream on-demand for live viewing in the web UI.
 
     Streams at ~stream_fps (default 5 FPS) to keep Pi Zero 2W CPU low.
-    Releases the camera automatically when client disconnects.
+    Releases the camera automatically via idle reaper when client disconnects.
     """
-    global _active_cap, _active_stream_count
-
     fps = max(1, config.stream_fps)
     delay = 1.0 / fps
+    max_session = float(config.stream_max_session_sec)
 
     try:
         import cv2  # type: ignore[import-untyped]
@@ -240,66 +370,41 @@ def generate_mjpeg_stream(config: Config) -> Generator[bytes, None, None]:
 
     if not has_cv2 or config.mock_sensors:
         label = "Mock Live Stream (5 FPS)" if config.mock_sensors else "OpenCV not available"
-        while True:
-            placeholder = _get_placeholder_jpeg(label)
-            yield (
-                b"--frame\r\n"
-                b"Content-Type: image/jpeg\r\n\r\n" + placeholder + b"\r\n"
-            )
-            time.sleep(delay)
+        yield from _placeholder_stream(
+            label=label,
+            delay=delay,
+            max_session=max_session,
+            regenerate=config.mock_sensors,
+        )
+        return
 
-    with _CAMERA_LOCK:
-        if _active_cap is None or not _active_cap.isOpened():
-            _active_cap = _open_video_capture(config)
-            if _active_cap.isOpened():
-                _active_cap.set(cv2.CAP_PROP_FRAME_WIDTH, min(640, config.capture_width))
-                _active_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, min(480, config.capture_height))
-                with contextlib.suppress(Exception):
-                    _active_cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
-
-        if _active_cap is None or not _active_cap.isOpened():
-            camera_ok = False
-        else:
-            camera_ok = True
-            _active_stream_count += 1
-
-    if not camera_ok:
+    if not _acquire_stream_handle(config):
         logger.warning("Camera unavailable for live stream")
-        placeholder = _get_placeholder_jpeg("Camera device offline")
-        while True:
-            yield (
-                b"--frame\r\n"
-                b"Content-Type: image/jpeg\r\n\r\n" + placeholder + b"\r\n"
-            )
-            time.sleep(1.0)
+        yield from _placeholder_stream(
+            label="Camera device offline",
+            delay=1.0,
+            max_session=max_session,
+            regenerate=False,
+        )
+        return
 
-    logger.info(
-        "▶ Live video stream started (%d FPS, active viewers=%d)", fps, _active_stream_count
-    )
+    logger.info("▶ Live video stream started (%d FPS)", fps)
     consecutive_failures = 0
+    started = time.monotonic()
     try:
-        while True:
-            with _CAMERA_LOCK:
-                if _active_cap is None or not _active_cap.isOpened():
-                    break
-                ret, frame = _active_cap.read()
-
-            if not ret or frame is None:
+        while (time.monotonic() - started) < max_session:
+            frame = _read_stream_frame()
+            if frame is None:
+                _acquire_stream_handle(config)
                 consecutive_failures += 1
                 if consecutive_failures >= 15:
                     logger.warning(
                         "Too many consecutive camera read failures (%d), terminating stream",
                         consecutive_failures,
                     )
-                    with _CAMERA_LOCK:
-                        if _active_cap is not None:
-                            _active_cap.release()
-                            _active_cap = None
                     break
                 time.sleep(0.1)
                 continue
-
-            consecutive_failures = 0
 
             # Encode as JPEG
             ret, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
@@ -307,30 +412,18 @@ def generate_mjpeg_stream(config: Config) -> Generator[bytes, None, None]:
                 consecutive_failures += 1
                 if consecutive_failures >= 15:
                     logger.warning("Repeated JPEG encode failure, terminating stream")
-                    with _CAMERA_LOCK:
-                        if _active_cap is not None:
-                            _active_cap.release()
-                            _active_cap = None
                     break
                 time.sleep(0.1)
                 continue
 
-            frame_bytes = jpeg.tobytes()
-            yield (
-                b"--frame\r\n"
-                b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
-            )
+            consecutive_failures = 0
+            yield _multipart_part(jpeg.tobytes())
             time.sleep(delay)
 
     except GeneratorExit:
         logger.info("⏹ Live video stream stopped for a client")
     finally:
-        with _CAMERA_LOCK:
-            _active_stream_count = max(0, _active_stream_count - 1)
-            if _active_stream_count == 0 and _active_cap is not None:
-                logger.info("Releasing camera device handle (no active viewers)")
-                _active_cap.release()
-                _active_cap = None
+        logger.info("Live video stream ended")
 
 
 def list_photos(config: Config) -> list[dict[str, str]]:

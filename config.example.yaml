@@ -29,6 +29,9 @@ daily_capture_minute: 0
 # On-demand live stream framerate (keep low to save Pi Zero 2W CPU)
 stream_fps: 5
 
+# Maximum live stream session duration in seconds (default: 300 = 5 minutes)
+stream_max_session_sec: 300
+
 # Web server (port 80 allows opening http://citruspi.local directly)
 host: "0.0.0.0"
 port: 80
