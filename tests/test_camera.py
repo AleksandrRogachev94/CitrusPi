@@ -79,6 +79,14 @@ def test_generate_mjpeg_stream_mock(tmp_path: Path) -> None:
     stream.close()
 
 
+def test_multipart_frame_declares_exact_jpeg_length() -> None:
+    jpeg = b"\xff\xd8test-jpeg\xff\xd9"
+    part = camera._multipart_part(jpeg)
+    headers, body = part.split(b"\r\n\r\n", 1)
+    assert f"Content-Length: {len(jpeg)}".encode() in headers
+    assert body == jpeg + b"\r\n"
+
+
 def test_list_photos_ignores_non_date_files(tmp_path: Path) -> None:
     cfg = Config(captures_dir=tmp_path / "captures")
     cfg.captures_dir.mkdir(parents=True)
@@ -211,25 +219,22 @@ def test_generator_ends_after_max_session_sec(tmp_path: Path) -> None:
     )
     fake_cap = FakeCap(opened=True)
 
-    monotonic_times = [100.0, 100.1, 100.2, 115.0]  # jumps past max_session_sec (10s)
-    time_idx = 0
+    clock = MagicMock(return_value=100.0)
 
-    def mock_monotonic() -> float:
-        nonlocal time_idx
-        val = monotonic_times[min(time_idx, len(monotonic_times) - 1)]
-        time_idx += 1
-        return val
+    def advance_clock(delay: float) -> None:
+        clock.return_value += 5.0
 
     with (
         patch("citruspi.camera._open_video_capture", return_value=fake_cap),
         patch("cv2.imencode", return_value=(True, MagicMock(tobytes=lambda: b"fake-frame"))),
-        patch("time.monotonic", side_effect=mock_monotonic),
-        patch("time.sleep"),
+        patch("time.monotonic", clock),
+        patch("time.sleep", side_effect=advance_clock),
+        patch("citruspi.camera._ensure_reaper"),
     ):
         gen = camera.generate_mjpeg_stream(cfg)
         parts = list(gen)
-        # Yields frames until time jumps past max_session_sec and cleanly terminates
-        assert len(parts) >= 1
+        # Two five-second intervals reach the ten-second session limit.
+        assert len(parts) == 2
 
 
 def test_mjpg_fourcc_variants() -> None:

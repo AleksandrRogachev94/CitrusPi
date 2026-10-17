@@ -8,10 +8,13 @@ const vm = require('node:vm');
 function page(name, { status = 'Telemetry Feed', timestamp, storedView = 'grid', reports = true } = {}) {
     const listeners = {};
     const nodes = {};
+    const timers = new Map();
+    let timerId = 0;
     function element(id) {
         const classes = new Set();
         return nodes[id] = {
             id, dataset: {}, style: {}, hidden: false, textContent: '',
+            removeAttribute(name) { delete this[name]; },
             getContext: () => ({}),
             classList: {
                 add: name => classes.add(name),
@@ -23,7 +26,9 @@ function page(name, { status = 'Telemetry Feed', timestamp, storedView = 'grid',
     }
     for (const id of ['climateChart', 'thermalChart', 'chart-status', 'live-readings',
         'telemetry-live-dot', 'telemetry-status-label', 'thermal-range-badge',
-        'gallery-grid-view', 'gallery-log-view', 'timelapse-btn']) element(id);
+        'gallery-grid-view', 'gallery-log-view', 'timelapse-btn', 'camera-display',
+        'camera-empty', 'stream-live-pill', 'stream-loading', 'camera-caption',
+        'toggle-stream-btn']) element(id);
     if (reports) for (const id of ['view-grid-btn', 'view-log-btn']) element(id);
     nodes['telemetry-status-label'].dataset.status = status;
     nodes['live-readings'].dataset.staleAfter = '180';
@@ -46,13 +51,16 @@ function page(name, { status = 'Telemetry Feed', timestamp, storedView = 'grid',
             this.destroy = () => { this.destroyed = true; };
         },
         setInterval() {}, clearInterval() {}, URLSearchParams, Date,
+        setTimeout(fn, delay) { const id = ++timerId; timers.set(id, { fn, delay }); return id; },
+        clearTimeout: id => timers.delete(id),
     });
     const template = fs.readFileSync(path.join(__dirname, '../src/citruspi/templates', name), 'utf8');
     const script = template.match(/<script>([\s\S]*)<\/script>/)[1]
-        .replace('const photos = {{ photos | tojson }};', 'const photos = [];');
+        .replace('const photos = {{ photos | tojson }};', 'const photos = [];')
+        .replaceAll('{{ config.stream_max_session_sec }}', '300');
     vm.runInContext(script, context);
     return {
-        nodes, listeners, storage,
+        nodes, listeners, storage, timers,
         run: code => vm.runInContext(code, context),
         fetch: fn => { fetchHistory = fn; },
     };
@@ -61,6 +69,57 @@ function page(name, { status = 'Telemetry Feed', timestamp, storedView = 'grid',
 const reading = {
     timestamp: new Date().toISOString(), temp_f: 60, root_temp_f: 58, humidity: 65, vpd_kpa: 0.5,
 };
+
+test('live view shows loading until the first stream image loads', () => {
+    const p = page('dashboard.html');
+    p.run('startStream()');
+    const img = p.nodes['camera-display'];
+    assert.equal(p.nodes['stream-loading'].style.display, 'flex');
+    assert.equal(p.nodes['stream-live-pill'].style.display, 'none');
+    assert.equal(img.style.visibility, 'hidden');
+    assert.equal(p.nodes['toggle-stream-btn'].textContent, '✕ Cancel');
+    img.currentSrc = '/captures/old-photo.jpg';
+    img.onload();
+    assert.equal(p.nodes['stream-loading'].style.display, 'flex');
+    img.currentSrc = img.src;
+    img.onload();
+    assert.equal(p.nodes['stream-loading'].style.display, 'none');
+    assert.equal(p.nodes['stream-live-pill'].style.display, 'flex');
+    assert.equal(img.style.visibility, 'visible');
+    assert.equal(p.nodes['toggle-stream-btn'].textContent, '⏹ Stop');
+    assert.equal([...p.timers.values()].some(t => t.delay === 20000), false);
+});
+
+test('live view can be cancelled while the camera starts', () => {
+    const p = page('dashboard.html');
+    p.run('startStream(); toggleStream()');
+    assert.equal(p.nodes['stream-loading'].style.display, 'none');
+    assert.equal(p.nodes['stream-live-pill'].style.display, 'none');
+    assert.equal(p.nodes['camera-display'].onload, null);
+    assert.equal(p.nodes['camera-display'].onerror, null);
+    assert.equal(p.timers.size, 0);
+    assert.equal(p.nodes['toggle-stream-btn'].textContent, '▶ Live View');
+});
+
+test('camera startup times out instead of showing an endless spinner', () => {
+    const p = page('dashboard.html');
+    p.run('startStream()');
+    [...p.timers.values()].find(t => t.delay === 20000).fn();
+    assert.match(p.nodes['camera-caption'].textContent, /startup timed out/);
+    assert.equal(p.nodes['stream-loading'].style.display, 'none');
+    assert.equal(p.nodes['stream-live-pill'].style.display, 'none');
+    assert.equal(p.nodes['toggle-stream-btn'].textContent, '▶ Live View');
+});
+
+test('camera error clears loading and restores the saved photo', () => {
+    const p = page('dashboard.html');
+    p.run('startStream()');
+    p.nodes['camera-display'].onerror();
+    assert.match(p.nodes['camera-caption'].textContent, /unavailable/);
+    assert.equal(p.nodes['stream-loading'].style.display, 'none');
+    assert.equal(p.nodes['camera-display'].style.visibility, 'visible');
+    assert.equal(p.timers.size, 0);
+});
 
 test('empty history clears previously drawn charts', async () => {
     const p = page('dashboard.html');

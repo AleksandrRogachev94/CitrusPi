@@ -32,9 +32,13 @@
 
         <!-- Permanent 16:9 Stage — Zero Layout Shift -->
         <div class="camera-stage">
+            <div id="stream-loading" class="stream-loading" role="status" style="display:none;">
+                <span class="stream-spinner" aria-hidden="true"></span>
+                <span>Starting camera…</span>
+            </div>
             <div id="stream-live-pill" class="stream-live-pill" style="display:none;">
                 <span class="live-dot-red"></span>
-                <span>LIVE · 5 FPS</span>
+                <span>LIVE · {{ config.stream_fps }} FPS</span>
             </div>
 
             {% if photo %}
@@ -113,13 +117,18 @@
 // ── Camera Stage Controller ──────────────────────────────────────────
 const defaultPhotoUrl = "{{ photo.url if photo else '' }}";
 const defaultCaptionDate = "{{ photo.date if photo else '' }}";
+let streamStartupTimer = null;
+let streamSessionTimer = null;
 
-function stopStream() {
+function stopStream(message = '') {
     const img = document.getElementById('camera-display');
     const emptyState = document.getElementById('camera-empty');
     const livePill = document.getElementById('stream-live-pill');
     const caption = document.getElementById('camera-caption');
     const btn = document.getElementById('toggle-stream-btn');
+    clearTimeout(streamStartupTimer);
+    clearTimeout(streamSessionTimer);
+    document.getElementById('stream-loading').style.display = 'none';
 
     if (btn) {
         btn.textContent = '▶ Live View';
@@ -128,7 +137,9 @@ function stopStream() {
     if (livePill) livePill.style.display = 'none';
 
     if (img) {
+        img.onload = null;
         img.onerror = null;
+        img.style.visibility = 'visible';
         img.removeAttribute('src');
         if (defaultPhotoUrl) {
             img.src = defaultPhotoUrl;
@@ -144,6 +155,10 @@ function stopStream() {
             if (caption) caption.style.display = 'none';
         }
     }
+    if (message && caption) {
+        caption.style.display = 'block';
+        caption.textContent = message;
+    }
 }
 
 function startStream() {
@@ -153,28 +168,37 @@ function startStream() {
     const caption = document.getElementById('camera-caption');
     const btn = document.getElementById('toggle-stream-btn');
 
-    if (!img) return;
-    img.onerror = () => {
-        if (btn && btn.classList.contains('btn-active')) {
-            stopStream();
-            if (caption) {
-                caption.style.display = 'block';
-                caption.innerHTML = '<span class="muted">Live stream session ended. Click <strong>▶ Live View</strong> to resume.</span>';
-            }
-        }
+    if (!img || btn.classList.contains('btn-active')) return;
+    img.onload = () => {
+        // The old daily photo may finish loading while the stream request is pending.
+        if (!btn.classList.contains('btn-active') || img.currentSrc !== img.src) return;
+        img.onload = null;
+        clearTimeout(streamStartupTimer);
+        document.getElementById('stream-loading').style.display = 'none';
+        img.style.visibility = 'visible';
+        livePill.style.display = 'flex';
+        caption.textContent = 'Live Tent Feed ({{ config.stream_fps }} FPS)';
+        btn.textContent = '⏹ Stop';
+        streamSessionTimer = setTimeout(() => stopStream('Live view session ended. Click Live View to resume.'), {{ config.stream_max_session_sec }} * 1000);
     };
-    img.src = '/stream?t=' + Date.now();
+    img.onerror = () => {
+        stopStream('Live view unavailable or session ended. Click Live View to retry.');
+    };
+    img.style.visibility = 'hidden';
     img.style.display = 'block';
+    livePill.style.display = 'none';
+    document.getElementById('stream-loading').style.display = 'flex';
     if (emptyState) emptyState.style.display = 'none';
     if (caption) {
         caption.style.display = 'block';
-        caption.innerHTML = `<strong>Live Tent Feed</strong> (On-demand ~5 FPS)`;
+        caption.textContent = 'Waiting for the first live frame…';
     }
-    if (livePill) livePill.style.display = 'flex';
     if (btn) {
-        btn.textContent = '⏹ Stop';
+        btn.textContent = '✕ Cancel';
         btn.classList.add('btn-active');
     }
+    streamStartupTimer = setTimeout(() => stopStream('Camera startup timed out. Click Live View to retry.'), 20000);
+    img.src = '/stream?t=' + Date.now();
 }
 
 function toggleStream() {

@@ -147,7 +147,8 @@ def _read_stream_frame() -> Any:
 
 def _multipart_part(jpeg: bytes) -> bytes:
     """Format JPEG bytes into a standard MJPEG multipart boundary."""
-    return b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n"
+    headers = f"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: {len(jpeg)}\r\n\r\n"
+    return headers.encode("ascii") + jpeg + b"\r\n"
 
 
 def _placeholder_stream(
@@ -376,6 +377,7 @@ def generate_mjpeg_stream(config: Config) -> Generator[bytes, None, None]:
     fps = max(1, config.stream_fps)
     delay = 1.0 / fps
     max_session = float(config.stream_max_session_sec)
+    request_started = time.monotonic()
 
     try:
         import cv2  # type: ignore[import-untyped]
@@ -405,6 +407,7 @@ def generate_mjpeg_stream(config: Config) -> Generator[bytes, None, None]:
 
     logger.info("▶ Live video stream started (%d FPS)", fps)
     consecutive_failures = 0
+    first_frame = True
     started = time.monotonic()
     try:
         while (time.monotonic() - started) < max_session:
@@ -432,6 +435,12 @@ def generate_mjpeg_stream(config: Config) -> Generator[bytes, None, None]:
                 continue
 
             consecutive_failures = 0
+            if first_frame:
+                logger.info(
+                    "First live camera frame ready after %.2fs",
+                    time.monotonic() - request_started,
+                )
+                first_frame = False
             yield _multipart_part(jpeg.tobytes())
             time.sleep(delay)
 
