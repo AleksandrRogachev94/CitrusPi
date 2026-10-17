@@ -175,3 +175,27 @@ def test_save_and_latest_daily_report(tmp_path: Path) -> None:
     assert latest_upsert["status"] == "alert"
     assert latest_upsert["summary"] == "Updated: severe defoliation."
 
+
+def test_daily_reports_query_and_mapping(tmp_path: Path) -> None:
+    store = Store(tmp_path)
+
+    assert store.daily_reports() == []
+    assert store.reports_by_date() == {}
+
+    store.save_daily_report("2026-10-10", "healthy", "Looking green", leaf_drop=False)
+    store.save_daily_report("2026-10-11", "watch", "Slight curl", leaf_drop=False)
+    store.save_daily_report("2026-10-12", "alert", "Leaf drop", leaf_drop=True)
+
+    reports = store.daily_reports(limit=2)
+    assert len(reports) == 2
+    # Ordered by date DESC
+    assert reports[0]["date"] == "2026-10-12"
+    assert reports[1]["date"] == "2026-10-11"
+
+    mapping = store.reports_by_date()
+    assert len(mapping) == 3
+    assert mapping["2026-10-10"]["status"] == "healthy"
+    assert mapping["2026-10-11"]["status"] == "watch"
+    assert mapping["2026-10-12"]["status"] == "alert"
+    assert mapping["2026-10-12"]["leaf_drop"] == 1
+

@@ -66,12 +66,25 @@ def create_app(
 
     @app.get("/gallery", response_class=HTMLResponse)
     def gallery(request: Request) -> HTMLResponse:
-        photos = camera.list_photos(config)
+        raw_photos = camera.list_photos(config)
+        reports_map = store.reports_by_date()
+        photos: list[dict[str, Any]] = [
+            {**p, "report": reports_map.get(p["date"])} for p in raw_photos
+        ]
+
+        all_reports = store.daily_reports(limit=365)
+        # Create map of photos by date for the health log view
+        photos_map = {p["date"]: p for p in photos}
+        for r in all_reports:
+            r["photo"] = photos_map.get(r["date"])
+
         return templates.TemplateResponse(
             request=request,
             name="gallery.html",
             context={
                 "photos": photos,
+                "reports": all_reports,
+                "has_reports": bool(all_reports),
             },
         )
 
@@ -102,6 +115,11 @@ def create_app(
     @app.get("/api/photos")
     def api_photos() -> list[dict[str, str]]:
         return camera.list_photos(config)
+
+    @app.get("/api/reports")
+    def api_reports(limit: int = 100) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 365))
+        return store.daily_reports(limit=safe_limit)
 
     @app.post("/api/capture")
     def api_capture() -> dict[str, Any]:

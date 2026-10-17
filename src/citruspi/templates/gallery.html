@@ -7,10 +7,26 @@
     <p class="muted">One high-res frame captured daily during photoperiod to observe leaf health and leaf drop over time.</p>
 </section>
 
-{% if photos %}
+{% if photos or reports %}
 <section class="gallery-toolbar">
-    <span><strong>{{ photos|length }}</strong> daily frames recorded</span>
-    <button id="timelapse-btn" onclick="startTimelapse()">▶ Play Full Timelapse</button>
+    <div class="gallery-toolbar-left">
+        <span><strong>{{ photos|length }}</strong> daily frames</span>
+        {% if reports %}
+        <span class="toolbar-sep">·</span>
+        <span><strong>{{ reports|length }}</strong> AI health reports</span>
+        {% endif %}
+    </div>
+    <div class="gallery-toolbar-right">
+        {% if reports %}
+        <div class="range-selector" role="group" aria-label="Gallery view mode">
+            <button type="button" id="view-grid-btn" class="range-btn active" onclick="switchGalleryView('grid')">🖼️ Grid</button>
+            <button type="button" id="view-log-btn" class="range-btn" onclick="switchGalleryView('log')">📋 Health Log</button>
+        </div>
+        {% endif %}
+        {% if photos %}
+        <button id="timelapse-btn" onclick="startTimelapse()">▶ Play Timelapse</button>
+        {% endif %}
+    </div>
 </section>
 
 <div id="timelapse-overlay" class="timelapse-overlay" style="display:none;">
@@ -22,15 +38,59 @@
     </div>
 </div>
 
-<section class="photo-grid">
+<!-- Photo Grid View -->
+<section id="gallery-grid-view" class="photo-grid">
     {% for p in photos %}
         <div class="photo-thumb">
             <a href="{{ p.url }}" target="_blank">
                 <img src="{{ p.url }}" alt="{{ p.date }}" loading="lazy">
             </a>
+            {% if p.report %}
+            <div class="thumb-badges">
+                {% if p.report.leaf_drop %}
+                <span class="ai-badge badge-leaf-drop badge-compact" title="Leaf Drop Detected">🍂</span>
+                {% endif %}
+                <span class="ai-badge badge-{{ p.report.status }} badge-compact">{{ p.report.status|upper }}</span>
+            </div>
+            {% endif %}
             <span class="thumb-time">{{ p.date }}</span>
         </div>
     {% endfor %}
+</section>
+
+<!-- Health Log View -->
+<section id="gallery-log-view" class="health-log-list" style="display:none;">
+    {% if reports %}
+        {% for r in reports %}
+        <div class="card health-log-entry">
+            <div class="health-log-thumb-col">
+                {% if r.photo %}
+                <a href="{{ r.photo.url }}" target="_blank">
+                    <img src="{{ r.photo.url }}" alt="{{ r.date }}" class="health-log-img" loading="lazy">
+                </a>
+                {% else %}
+                <div class="health-log-no-img">📷</div>
+                {% endif %}
+            </div>
+            <div class="health-log-content">
+                <div class="health-log-header">
+                    <span class="health-log-date">📅 {{ r.date }}</span>
+                    <div class="ai-report-badges">
+                        {% if r.leaf_drop %}
+                        <span class="ai-badge badge-leaf-drop">🍂 Leaf Drop</span>
+                        {% endif %}
+                        <span class="ai-badge badge-{{ r.status }}">{{ r.status|upper }}</span>
+                    </div>
+                </div>
+                <p class="health-log-summary">{{ r.summary }}</p>
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+        <div class="card" style="text-align:center; padding: 2.5rem;">
+            <p class="muted">No AI health reports recorded yet.</p>
+        </div>
+    {% endif %}
 </section>
 
 <script>
@@ -77,6 +137,38 @@ function stopTimelapse() {
 }
 
 document.addEventListener('keydown', e => { if (e.key === 'Escape') stopTimelapse(); });
+
+// ── View Switcher (Grid vs. Health Log) ───────────────────────────
+function switchGalleryView(view) {
+    const gridView = document.getElementById('gallery-grid-view');
+    const logView = document.getElementById('gallery-log-view');
+    const gridBtn = document.getElementById('view-grid-btn');
+    const logBtn = document.getElementById('view-log-btn');
+    const tlBtn = document.getElementById('timelapse-btn');
+
+    if (view === 'log') {
+        if (gridView) gridView.style.display = 'none';
+        if (logView) logView.style.display = 'flex';
+        if (gridBtn) gridBtn.classList.remove('active');
+        if (logBtn) logBtn.classList.add('active');
+        if (tlBtn) tlBtn.style.display = 'none';
+        localStorage.setItem('citruspi-gallery-view', 'log');
+    } else {
+        if (gridView) gridView.style.display = 'grid';
+        if (logView) logView.style.display = 'none';
+        if (gridBtn) gridBtn.classList.add('active');
+        if (logBtn) logBtn.classList.remove('active');
+        if (tlBtn) tlBtn.style.display = 'inline-block';
+        localStorage.setItem('citruspi-gallery-view', 'grid');
+    }
+}
+
+// Check URL query parameter ?view=log or stored preference
+const urlParams = new URLSearchParams(window.location.search);
+const initialView = urlParams.get('view') || localStorage.getItem('citruspi-gallery-view') || 'grid';
+if (initialView === 'log') {
+    switchGalleryView('log');
+}
 </script>
 {% else %}
 <div class="card" style="text-align:center; padding: 3rem;">

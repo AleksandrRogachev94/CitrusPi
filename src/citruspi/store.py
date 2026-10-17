@@ -338,6 +338,20 @@ class Store:
         ).fetchone()
         return dict(row) if row else None
 
+    def daily_reports(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Return daily AI analysis reports ordered by date DESC."""
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT * FROM daily_reports ORDER BY date DESC LIMIT ?;",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def reports_by_date(self, limit: int = 365) -> dict[str, dict[str, Any]]:
+        """Return mapping of date_str -> report dict for fast lookups."""
+        reports = self.daily_reports(limit=limit)
+        return {str(r["date"]): r for r in reports}
+
     def get_applied_migrations(self) -> list[dict[str, Any]]:
         """Return list of applied migrations for inspection."""
         conn = self._get_conn()
