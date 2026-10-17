@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from citruspi.config import Config
+from citruspi.models import Reading
 from citruspi.sensors import SensorHub
 from citruspi.store import Store
 from citruspi.web import create_app
@@ -61,6 +62,29 @@ def test_fragments_readings_loads(client: TestClient) -> None:
     assert "Temperature" in r.text
     assert "Humidity" in r.text
     assert "Root Zone Temp" in r.text
+
+
+@pytest.mark.parametrize(("reading", "status"), [
+    (None, "No readings yet"),
+    (Reading.create(), "Canopy sensor offline"),
+    (Reading.create(temp_c=15, humidity=65), "Root probe offline"),
+    (Reading.create(temp_c=15, humidity=65, root_temp_c=14), "Telemetry Feed"),
+])
+def test_sensor_status_in_dashboard_and_fragment(
+    tmp_path: Path, reading: Reading | None, status: str,
+) -> None:
+    cfg = Config(mock_sensors=True, data_dir=tmp_path / "data",
+                 captures_dir=tmp_path / "captures", poll_interval_sec=300)
+    store = Store(cfg.data_dir)
+    if reading is not None:
+        store.insert(reading)
+    client = TestClient(create_app(cfg, store, SensorHub(cfg)))
+    for url in ("/", "/fragments/readings"):
+        html = client.get(url).text
+        assert f'data-status="{status}">{status}</span>' in html
+        dot = "live-dot" if status == "Telemetry Feed" else "stale-dot"
+        assert f'class="{dot}" id="telemetry-live-dot"' in html
+    assert 'data-stale-after="900"' in client.get("/").text
 
 
 def test_dashboard_with_ai_report(tmp_path: Path) -> None:

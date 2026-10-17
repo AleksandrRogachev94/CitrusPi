@@ -62,14 +62,14 @@
 <section id="gallery-log-view" class="health-log-list" style="display:none;">
     {% if reports %}
         {% for r in reports %}
-        <div class="card health-log-entry" style="display: flex; gap: 1.25rem; align-items: flex-start;">
-            <div class="health-log-thumb-col" style="flex: 0 0 160px; width: 160px; max-width: 160px;">
+        <div class="card health-log-entry">
+            <div class="health-log-thumb-col">
                 {% if r.photo %}
                 <a href="{{ r.photo.url }}" target="_blank">
-                    <img src="{{ r.photo.url }}" alt="{{ r.date }}" class="health-log-img" width="160" height="90" loading="lazy" style="width: 160px; max-width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 6px; display: block;">
+                    <img src="{{ r.photo.url }}" alt="{{ r.date }}" class="health-log-img" width="160" height="90" loading="lazy">
                 </a>
                 {% else %}
-                <div class="health-log-no-img" style="width: 160px; aspect-ratio: 16 / 9;">📷</div>
+                <div class="health-log-no-img">📷</div>
                 {% endif %}
             </div>
             <div class="health-log-content">
@@ -146,7 +146,7 @@ function switchGalleryView(view) {
     const logBtn = document.getElementById('view-log-btn');
     const tlBtn = document.getElementById('timelapse-btn');
 
-    if (view === 'log') {
+    if (view === 'log' && logBtn) {
         if (gridView) gridView.style.display = 'none';
         if (logView) logView.style.display = 'flex';
         if (gridBtn) gridBtn.classList.remove('active');
@@ -166,9 +166,7 @@ function switchGalleryView(view) {
 // Check URL query parameter ?view=log or stored preference
 const urlParams = new URLSearchParams(window.location.search);
 const initialView = urlParams.get('view') || localStorage.getItem('citruspi-gallery-view') || 'grid';
-if (initialView === 'log') {
-    switchGalleryView('log');
-}
+switchGalleryView(initialView);
 </script>
 {% else %}
 <div class="card" style="text-align:center; padding: 3rem;">

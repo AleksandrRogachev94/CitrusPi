@@ -1,8 +1,17 @@
 <!-- Sensor Cards Fragment (polled by htmx every 30s) -->
+{% if not reading %}
+    {% set sensor_status = 'No readings yet' %}
+{% elif reading.temp_f is none or reading.humidity is none %}
+    {% set sensor_status = 'Canopy sensor offline' %}
+{% elif reading.root_temp_f is none %}
+    {% set sensor_status = 'Root probe offline' %}
+{% else %}
+    {% set sensor_status = 'Telemetry Feed' %}
+{% endif %}
 <div class="readings-meta-bar">
     <div class="meta-status">
-        <span class="live-dot" id="telemetry-live-dot"></span>
-        <span class="meta-title" id="telemetry-status-label">Telemetry Feed</span>
+        <span class="{{ 'live-dot' if sensor_status == 'Telemetry Feed' else 'stale-dot' }}" id="telemetry-live-dot"></span>
+        <span class="meta-title" id="telemetry-status-label" data-status="{{ sensor_status }}">{{ sensor_status }}</span>
     </div>
     {% if reading and reading.timestamp %}
         <span class="meta-time" id="telemetry-time" data-timestamp="{{ reading.timestamp }}">Updated {{ reading.timestamp[11:19] }} UTC</span>
@@ -10,29 +19,7 @@
         <span class="meta-time muted">No readings yet</span>
     {% endif %}
 </div>
-<script>
-(function() {
-    if (typeof window.checkTelemetryStaleness === 'function') {
-        window.checkTelemetryStaleness();
-    } else {
-        const timeEl = document.getElementById('telemetry-time');
-        const dotEl = document.getElementById('telemetry-live-dot');
-        const labelEl = document.getElementById('telemetry-status-label');
-        if (timeEl && timeEl.dataset.timestamp) {
-            const dt = new Date(timeEl.dataset.timestamp);
-            if (!isNaN(dt.getTime())) {
-                timeEl.textContent = 'Updated ' + dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                const ageSec = (Date.now() - dt.getTime()) / 1000;
-                if (ageSec > 180) {
-                    if (dotEl) dotEl.className = 'stale-dot';
-                    if (labelEl) labelEl.textContent = 'Telemetry (Stale)';
-                    timeEl.classList.add('stale-text');
-                }
-            }
-        }
-    }
-})();
-</script>
+
 
 <section class="cards">
     <!-- Temperature Card -->

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import re
 from dataclasses import dataclass, field
@@ -19,7 +20,7 @@ class Config:
     poll_interval_sec: int = 60  # 1 min default for high resolution
     bme280_address: int = 0x76
     w1_devices_dir: Path = Path("/sys/bus/w1/devices")
-    mock_sensors: bool = False  # auto-detected if hardware unavailable
+    mock_sensors: bool = False  # explicitly enabled for local development
 
     # ── Camera & Photoperiod ──────────────────────────────────────────
     camera_device: str = "/dev/video0"
@@ -60,6 +61,36 @@ class Config:
     log_level: str = "info"
 
     def __post_init__(self) -> None:
+        bounds = {
+            "poll_interval_sec": (1, None),
+            "daily_capture_hour": (0, 23),
+            "daily_capture_minute": (0, 59),
+            "stream_fps": (1, None),
+            "stream_max_session_sec": (1, None),
+            "capture_width": (1, None),
+            "capture_height": (1, None),
+            "camera_device_index": (0, None),
+            "alert_debounce_count": (1, None),
+            "port": (1, 65535),
+        }
+        for name, (minimum, maximum) in bounds.items():
+            value = getattr(self, name)
+            if (
+                type(value) is not int
+                or value < minimum
+                or (maximum is not None and value > maximum)
+            ):
+                upper_bound = f" and <= {maximum}" if maximum is not None else ""
+                raise ValueError(f"{name} must be an integer >= {minimum}{upper_bound}")
+        thresholds = (self.temp_min_crit_f, self.temp_min_warn_f, self.temp_max_crit_f)
+        if any(
+            type(value) not in (int, float) or not math.isfinite(value)
+            for value in thresholds
+        ):
+            raise ValueError("Temperature thresholds must be finite numbers")
+        if not self.temp_min_crit_f < self.temp_min_warn_f < self.temp_max_crit_f:
+            raise ValueError("Temperature thresholds must satisfy critical low < warning < high")
+
         if isinstance(self.w1_devices_dir, str):
             self.w1_devices_dir = Path(self.w1_devices_dir)
         if isinstance(self.data_dir, str):
@@ -76,7 +107,6 @@ class Config:
                 self.camera_device_index = int(match.group(1))
 
 
-
 def load_config(path: str | Path | None = None) -> Config:
     """Load config from YAML, env-var, or compiled defaults."""
     raw: dict[str, Any] = {}
@@ -85,7 +115,8 @@ def load_config(path: str | Path | None = None) -> Config:
         if not p.is_file():
             raise FileNotFoundError(f"Config file not found: {path}")
         with open(p) as fh:
-            raw = yaml.safe_load(fh) or {}
+            loaded = yaml.safe_load(fh)
+            raw = {} if loaded is None else loaded
     else:
         search: list[Path] = []
         env = os.environ.get("CITRUSPI_CONFIG")
@@ -96,13 +127,17 @@ def load_config(path: str | Path | None = None) -> Config:
         for p in search:
             if p.is_file():
                 with open(p) as fh:
-                    raw = yaml.safe_load(fh) or {}
+                    loaded = yaml.safe_load(fh)
+                    raw = {} if loaded is None else loaded
                 break  # first match wins
 
     import dataclasses
     import logging
 
     logger = logging.getLogger(__name__)
+
+    if not isinstance(raw, dict):
+        raise ValueError("Config YAML must contain a mapping of settings")
 
     # Convert paths
     for key in ("data_dir", "captures_dir", "w1_devices_dir"):

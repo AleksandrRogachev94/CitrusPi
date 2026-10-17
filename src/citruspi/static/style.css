@@ -963,6 +963,10 @@ canvas {
         flex-direction: column;
         gap: 0.75rem;
     }
+    .health-log-thumb-col {
+        flex: 0 0 auto;
+        max-width: 100%;
+    }
     .health-log-thumb-col,
     .health-log-img,
     .health-log-no-img {

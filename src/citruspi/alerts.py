@@ -131,12 +131,14 @@ class AlertManager:
     ) -> None:
         """Update consecutive debouncing, active state, and dispatch notifications."""
         if rule.is_active and is_recovered:
-            self._notify(
+            delivered = self._notify(
                 f"Resolved: {rule.title}",
                 recovery_msg,
                 "default",
                 "white_check_mark",
             )
+            if not delivered:
+                return  # Retry recovery on the next healthy reading.
             rule.is_active = False
             rule.breach_count = 0
             if rule.critical:

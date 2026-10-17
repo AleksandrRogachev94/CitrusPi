@@ -112,6 +112,25 @@ def test_check_and_take_daily_capture_schedule(tmp_path: Path) -> None:
     assert camera.check_and_take_daily_capture(cfg, now=after) is None
 
 
+def test_linux_camera_uses_configured_path() -> None:
+    cfg = Config(camera_device="/dev/v4l/by-id/usb-tent-camera")
+    with (
+        patch("citruspi.camera.sys.platform", "linux"),
+        patch("cv2.VideoCapture") as open_camera,
+    ):
+        camera._open_video_capture(cfg)
+    assert open_camera.call_args.args[0] == cfg.camera_device
+
+
+def test_mac_camera_uses_index() -> None:
+    with (
+        patch("citruspi.camera.sys.platform", "darwin"),
+        patch("cv2.VideoCapture") as open_camera,
+    ):
+        camera._open_video_capture(Config(camera_device_index=2))
+    assert open_camera.call_args.args[0] == 2
+
+
 def test_release_if_idle_timing() -> None:
     fake = FakeCap(opened=True)
     with camera._CAMERA_LOCK:

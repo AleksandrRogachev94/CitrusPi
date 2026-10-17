@@ -12,6 +12,8 @@ import logging
 import sqlite3
 import threading
 from datetime import UTC, datetime
+from itertools import chain, islice
+from math import ceil
 from pathlib import Path
 from typing import Any
 
@@ -183,46 +185,50 @@ class Store:
     def history(self, hours: int = 24, max_points: int = 1000) -> list[dict[str, Any]]:
         """Return readings from the last *hours* hours using timestamp index range scan.
 
-        Automatically downsamples longer periods only if row count exceeds max_points,
-        ensuring smooth rendering on Pi Zero 2W without starving small datasets.
+        Keep bucket endpoints, extrema for each charted metric, and a missing-value
+        sample per metric. Stream the query so a month of data needn't fit in Python memory.
+        max_points must be at least 2 so the first and last samples can be retained.
         """
         conn = self._get_conn()
-        cutoff = f"-{hours}"
-
-        count_row = conn.execute(
+        if max_points < 2:
+            raise ValueError("max_points must be at least 2")
+        cursor = conn.execute(
             """
-            SELECT COUNT(*) FROM readings
-            WHERE timestamp >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ? || ' hours');
+            SELECT *, COUNT(*) OVER () AS _total FROM readings
+            WHERE timestamp >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ? || ' hours')
+            ORDER BY timestamp ASC, id ASC;
             """,
-            (cutoff,),
-        ).fetchone()
-        total_rows = count_row[0] if count_row else 0
+            (f"-{hours}",),
+        )
+        first = cursor.fetchone()
+        if first is None:
+            return []
+        columns = [key for key in dict(first) if key != "_total"]
+        rows = ({key: row[key] for key in columns} for row in chain([first], cursor))
+        if first["_total"] <= max_points:
+            return list(rows)
 
-        if total_rows <= max_points:
-            rows = conn.execute(
-                """
-                SELECT * FROM readings
-                WHERE timestamp >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ? || ' hours')
-                ORDER BY timestamp ASC;
-                """,
-                (cutoff,),
-            ).fetchall()
-        else:
-            stride = max(2, total_rows // max_points)
-            rows = conn.execute(
-                """
-                WITH numbered AS (
-                    SELECT *, ROW_NUMBER() OVER (ORDER BY timestamp ASC) AS rn
-                    FROM readings
-                    WHERE timestamp >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ? || ' hours')
-                )
-                SELECT * FROM numbered
-                WHERE rn % ? = 1
-                ORDER BY timestamp ASC;
-                """,
-                (cutoff, stride),
-            ).fetchall()
-        return [dict(r) for r in rows]
+        # At most 14 distinct samples per bucket: 2 endpoints + 3 per metric.
+        bucket_size = ceil(first["_total"] / max(1, max_points // 14))
+        sampled: list[dict[str, Any]] = []
+        while bucket := list(islice(rows, bucket_size)):
+            indices = {0, len(bucket) - 1}
+            for field in ("temp_f", "root_temp_f", "humidity", "vpd_kpa"):
+                valid = [i for i, row in enumerate(bucket) if row[field] is not None]
+                candidates: list[int] = []
+                if valid:
+                    candidates.extend((
+                        min(valid, key=lambda i: bucket[i][field]),
+                        max(valid, key=lambda i: bucket[i][field]),
+                    ))
+                missing = next((i for i, row in enumerate(bucket) if row[field] is None), None)
+                if missing is not None:
+                    candidates.append(missing)
+                for index in candidates:
+                    if len(indices) < max_points:
+                        indices.add(index)
+            sampled.extend(bucket[i] for i in sorted(indices))
+        return sampled
 
     def daily_summary(self, date_str: str) -> dict[str, Any]:
         """Min/max/avg for a given YYYY-MM-DD date using index range bounds."""

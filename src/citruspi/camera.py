@@ -210,10 +210,13 @@ def _open_video_capture(config: Config) -> Any:
     import cv2  # type: ignore[import-untyped]
 
     backend = cv2.CAP_V4L2 if sys.platform.startswith("linux") else cv2.CAP_ANY
+    device = (
+        config.camera_device if sys.platform.startswith("linux") else config.camera_device_index
+    )
     try:
-        cap = cv2.VideoCapture(config.camera_device_index, backend)
+        cap = cv2.VideoCapture(device, backend)
     except Exception:
-        cap = cv2.VideoCapture(config.camera_device_index)
+        cap = cv2.VideoCapture(device)
     if cap.isOpened():
         try:
             cap.set(cv2.CAP_PROP_FOURCC, _mjpg_fourcc(cv2))

@@ -1,4 +1,7 @@
 {% extends "base.html" %}
+{% block head %}
+<script src="/static/charts.js?v={{ static_version('charts.js') }}"></script>
+{% endblock %}
 {% block content %}
 
 {% if is_mock %}
@@ -6,7 +9,7 @@
 {% endif %}
 
 <!-- Sensor Cards Container (Polled every 30s by htmx) -->
-<div id="live-readings" hx-get="/fragments/readings" hx-trigger="every 30s" hx-swap="innerHTML">
+<div id="live-readings" data-stale-after="{{ [180, config.poll_interval_sec * 3]|max }}" hx-get="/fragments/readings" hx-trigger="every 30s" hx-swap="innerHTML">
     {% include "_readings.html" %}
 </div>
 
@@ -74,6 +77,7 @@
 
     <!-- Column 2: Telemetry Charts (Synchronized Dual Visualizations) -->
     <div class="charts-column">
+        <p id="chart-status" class="muted small" role="status">Loading charts…</p>
         <!-- Climate & VPD Chart -->
         <section class="card chart-card">
             <div class="card-header-compact">
@@ -198,11 +202,22 @@ window.addEventListener('pagehide', () => {
     }
 });
 
-// ── Chart.js Dual Visualizations (Anchored Scales, Zero Muddy Fills) ─
 // ── Chart.js Dual Visualizations (Anchored Scales, Multi-day Ranges) ─
 let climateChartInstance = null;
 let thermalChartInstance = null;
-let currentRangeHours = parseInt(localStorage.getItem('citruspi-chart-range') || '24', 10);
+const savedRange = Number(localStorage.getItem('citruspi-chart-range'));
+let currentRangeHours = [24, 72, 168, 336, 720].includes(savedRange) ? savedRange : 24;
+let chartRequestId = 0;
+
+function clearCharts(message) {
+    if (climateChartInstance) climateChartInstance.destroy();
+    if (thermalChartInstance) thermalChartInstance.destroy();
+    climateChartInstance = null;
+    thermalChartInstance = null;
+    const status = document.getElementById('chart-status');
+    status.textContent = message;
+    status.hidden = false;
+}
 
 function getThemeColors() {
     const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
@@ -234,9 +249,33 @@ function setChartRange(hours) {
 }
 
 async function loadCharts(hours = currentRangeHours) {
-    const res = await fetch(`/api/history?hours=${hours}`);
-    const data = await res.json();
-    if (!data.length) return;
+    const requestId = ++chartRequestId;
+    let data;
+    try {
+        const res = await fetch(`/api/history?hours=${hours}`);
+        if (!res.ok) throw new Error('History request failed');
+        data = await res.json();
+        if (!Array.isArray(data)) throw new Error('Invalid history response');
+    } catch (error) {
+        if (requestId === chartRequestId) clearCharts('Could not load history. Retrying on the next refresh.');
+        return;
+    }
+    if (requestId !== chartRequestId) return;
+    if (!data.length) {
+        clearCharts('No readings recorded for this period.');
+        return;
+    }
+    const assetsLoaded = await window.chartsReady;
+    if (requestId !== chartRequestId) return;
+    if (assetsLoaded === false || typeof Chart === 'undefined') {
+        clearCharts('Chart assets could not be loaded. Check your connection and refresh.');
+        return;
+    }
+    const hasMeasurements = data.some(r =>
+        [r.temp_f, r.root_temp_f, r.humidity, r.vpd_kpa].some(Number.isFinite));
+    const status = document.getElementById('chart-status');
+    status.hidden = hasMeasurements;
+    status.textContent = hasMeasurements ? '' : 'No sensor measurements available for this period.';
 
     const theme = getThemeColors();
     const now = Date.now();
@@ -431,49 +470,46 @@ loadCharts(currentRangeHours);
 setInterval(() => loadCharts(currentRangeHours), 300000); // 5-minute refresh
 
 // ── Telemetry Staleness & Offline Watcher ──────────────────────────
+let telemetryOffline = false;
 function checkTelemetryStaleness() {
     const timeEl = document.getElementById('telemetry-time');
     const dotEl = document.getElementById('telemetry-live-dot');
     const labelEl = document.getElementById('telemetry-status-label');
-    if (!timeEl || !timeEl.dataset.timestamp) return;
+    if (!dotEl || !labelEl) return;
 
-    const dt = new Date(timeEl.dataset.timestamp);
-    if (isNaN(dt.getTime())) return;
-
-    timeEl.textContent = 'Updated ' + dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    const ageSec = (Date.now() - dt.getTime()) / 1000;
-    if (ageSec > 180) {
-        if (dotEl) dotEl.className = 'stale-dot';
-        if (labelEl) labelEl.textContent = 'Telemetry (Stale)';
-        timeEl.classList.add('stale-text');
-    } else {
-        if (dotEl) dotEl.className = 'live-dot';
-        if (labelEl) labelEl.textContent = 'Telemetry Feed';
-        timeEl.classList.remove('stale-text');
+    let status = labelEl.dataset.status;
+    let stale = false;
+    if (timeEl && timeEl.dataset.timestamp) {
+        const dt = new Date(timeEl.dataset.timestamp);
+        if (!isNaN(dt.getTime())) {
+            timeEl.textContent = 'Updated ' + dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const staleAfter = Number(document.getElementById('live-readings').dataset.staleAfter);
+            stale = (Date.now() - dt.getTime()) / 1000 > staleAfter;
+        }
+        timeEl.classList.toggle('stale-text', stale || telemetryOffline);
     }
+    if (stale) status = 'Telemetry (Stale)';
+    if (telemetryOffline) status = 'Telemetry (Offline)';
+    dotEl.className = status === 'Telemetry Feed' ? 'live-dot' : 'stale-dot';
+    labelEl.textContent = status;
 }
 
-window.checkTelemetryStaleness = checkTelemetryStaleness;
 checkTelemetryStaleness();
 setInterval(checkTelemetryStaleness, 15000);
-
-document.body.addEventListener('htmx:sendError', function(evt) {
-    if (evt.detail && evt.detail.target && evt.detail.target.id === 'live-readings') {
-        const dotEl = document.getElementById('telemetry-live-dot');
-        const labelEl = document.getElementById('telemetry-status-label');
-        if (dotEl) dotEl.className = 'stale-dot';
-        if (labelEl) labelEl.textContent = 'Telemetry (Offline)';
+document.body.addEventListener('htmx:afterSwap', function(evt) {
+    if (evt.detail.target.id === 'live-readings') {
+        telemetryOffline = false;
+        checkTelemetryStaleness();
     }
 });
-
-document.body.addEventListener('htmx:responseError', function(evt) {
-    if (evt.detail && evt.detail.target && evt.detail.target.id === 'live-readings') {
-        const dotEl = document.getElementById('telemetry-live-dot');
-        const labelEl = document.getElementById('telemetry-status-label');
-        if (dotEl) dotEl.className = 'stale-dot';
-        if (labelEl) labelEl.textContent = 'Telemetry (Offline)';
-    }
-});
+for (const event of ['htmx:sendError', 'htmx:responseError']) {
+    document.body.addEventListener(event, function(evt) {
+        if (evt.detail.target.id === 'live-readings') {
+            telemetryOffline = true;
+            checkTelemetryStaleness();
+        }
+    });
+}
 </script>
 
 {% endblock %}

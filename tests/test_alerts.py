@@ -356,6 +356,27 @@ def test_failed_send_retried_next_poll(base_config: Config) -> None:
 # ── 6. Swallowing Network Errors ────────────────────────────────────────────
 
 
+def test_failed_recovery_notification_retried(base_config: Config) -> None:
+    notify = MagicMock(return_value=True)
+    alerts = AlertManager(base_config, notify=notify)
+    for _ in range(3):
+        alerts.evaluate(Reading.create(temp_f=35))
+    rule = alerts.rules["temp_crit_low"]
+    assert rule.is_active
+
+    notify.return_value = False
+    alerts.evaluate(Reading.create(temp_f=50))
+    assert rule.is_active
+    assert rule.last_sent is not None
+
+    notify.return_value = True
+    alerts.evaluate(Reading.create(temp_f=50))
+    assert notify.call_count == 3
+    assert notify.call_args.args[0] == "Resolved: CRITICAL: Low Temperature"
+    assert not rule.is_active
+    assert rule.last_sent is None
+
+
 def test_send_ntfy_swallows_network_errors(base_config: Config) -> None:
     alerts = AlertManager(base_config)
 

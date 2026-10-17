@@ -104,6 +104,13 @@ port: 80                  # Port 80 allows direct http://citruspi.local
 
 ## Useful Commands
 
+Local regression checks (after installing the `dev` dependencies):
+
+```bash
+python -m pytest
+node --test tests/test_dashboard.cjs  # Optional UI logic checks; requires Node.js, no npm install
+```
+
 ```bash
 # View live logs
 sudo journalctl -u citruspi -f

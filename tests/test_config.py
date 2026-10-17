@@ -96,3 +96,32 @@ def test_camera_device_and_index_synchronization() -> None:
     assert c2.camera_device == "/dev/video3"
     assert c2.camera_device_index == 3
 
+
+@pytest.mark.parametrize("settings", [
+    {"poll_interval_sec": 0},
+    {"poll_interval_sec": "60"},
+    {"daily_capture_hour": 25},
+    {"daily_capture_minute": -1},
+    {"stream_fps": 0},
+    {"stream_max_session_sec": 0},
+    {"capture_width": 0},
+    {"capture_height": -1},
+    {"alert_debounce_count": 0},
+    {"alert_debounce_count": True},
+    {"port": 65536},
+    {"temp_min_warn_f": 30},
+    {"temp_max_crit_f": float("nan")},
+    {"temp_min_crit_f": "cold"},
+])
+def test_invalid_settings_rejected(settings: dict) -> None:
+    with pytest.raises(ValueError):
+        Config(**settings)
+
+
+@pytest.mark.parametrize("yaml_text", ["- poll_interval_sec\n- 60\n", "[]", "false", "0"])
+def test_config_requires_mapping(tmp_path: Path, yaml_text: str) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml_text)
+    with pytest.raises(ValueError, match="mapping"):
+        load_config(path)
+

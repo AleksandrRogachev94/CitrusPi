@@ -1,5 +1,6 @@
 """Tests for SQLite store with WAL mode and migrations."""
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from citruspi.models import Reading
@@ -60,11 +61,49 @@ def test_history_downsampled(tmp_path: Path) -> None:
     for i in range(10):
         store.insert(Reading.create(temp_c=10.0 + i, humidity=60.0))
 
-    # max_points=3 with 10 rows gives stride=3 (indices 0, 3, 6, 9 -> 4 items)
     history = store.history(hours=72, max_points=3)
-    assert len(history) == 4
+    assert 2 <= len(history) <= 3
     assert history[0]["temp_c"] == 10.0
-    assert history[1]["temp_c"] == 13.0
+    assert history[-1]["temp_c"] == 19.0
+
+
+def test_history_preserves_extremes_gaps_and_endpoints(tmp_path: Path) -> None:
+    store = Store(tmp_path)
+    now = datetime.now(UTC)
+    for i in range(2999):
+        values = {"temp_f": 60.0, "root_temp_f": 58.0, "humidity": 65.0, "vpd_kpa": 0.5}
+        for field, offset, low, high in (
+            ("temp_f", 100, 30.0, 95.0),
+            ("root_temp_f", 102, 35.0, 100.0),
+            ("humidity", 104, 20.0, 90.0),
+            ("vpd_kpa", 106, 0.1, 2.0),
+        ):
+            if i == offset:
+                values[field] = low
+            elif i == offset + 1:
+                values[field] = high
+        if i == 300:
+            values = dict.fromkeys(values)
+        store.insert(Reading.create(
+            timestamp=(now - timedelta(seconds=2999 - i)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            **values,
+        ))
+
+    for limit in (14, 28, 1000):
+        history = store.history(hours=24, max_points=limit)
+        assert len(history) <= limit
+        assert history[0]["id"] == 1
+        assert history[-1]["id"] == 2999
+        assert any(row["temp_f"] is None for row in history)
+        for field, low, high in (
+            ("temp_f", 30.0, 95.0), ("root_temp_f", 35.0, 100.0),
+            ("humidity", 20.0, 90.0), ("vpd_kpa", 0.1, 2.0),
+        ):
+            values = [row[field] for row in history if row[field] is not None]
+            assert min(values) == low
+            assert max(values) == high
+        assert history == sorted(history, key=lambda row: (row["timestamp"], row["id"]))
+        assert "_total" not in history[0]
 
 
 def test_daily_summary(tmp_path: Path) -> None:
