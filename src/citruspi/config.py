@@ -27,6 +27,8 @@ class Config:
     camera_device_index: int = 0
     capture_width: int = 1920
     capture_height: int = 1080
+    stream_width: int = 1280
+    stream_height: int = 720
 
     # Photoperiod & daily timelapse photo schedule
     # Citrus grow tents often run lights overnight (e.g. 20:00 to 06:00)
@@ -69,6 +71,8 @@ class Config:
             "stream_max_session_sec": (1, None),
             "capture_width": (1, None),
             "capture_height": (1, None),
+            "stream_width": (1, None),
+            "stream_height": (1, None),
             "camera_device_index": (0, None),
             "alert_debounce_count": (1, None),
             "port": (1, 65535),

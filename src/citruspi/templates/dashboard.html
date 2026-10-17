@@ -31,7 +31,9 @@
         </div>
 
         <!-- Permanent 16:9 Stage — Zero Layout Shift -->
-        <div class="camera-stage">
+        <div id="camera-stage" class="camera-stage">
+            <button type="button" id="camera-fullscreen-btn" class="btn-secondary camera-fullscreen-btn"
+                onclick="toggleCameraFullscreen()" aria-label="Enter camera fullscreen">⛶ Fullscreen</button>
             <div id="stream-loading" class="stream-loading" role="status" style="display:none;">
                 <span class="stream-spinner" aria-hidden="true"></span>
                 <span>Starting camera…</span>
@@ -119,6 +121,39 @@ const defaultPhotoUrl = "{{ photo.url if photo else '' }}";
 const defaultCaptionDate = "{{ photo.date if photo else '' }}";
 let streamStartupTimer = null;
 let streamSessionTimer = null;
+
+function updateCameraFullscreenButton() {
+    const stage = document.getElementById('camera-stage');
+    const expanded = document.fullscreenElement === stage || stage.classList.contains('is-expanded');
+    const btn = document.getElementById('camera-fullscreen-btn');
+    btn.textContent = expanded ? '✕ Exit fullscreen' : '⛶ Fullscreen';
+    btn.setAttribute('aria-label', expanded ? 'Exit camera fullscreen' : 'Enter camera fullscreen');
+}
+
+async function toggleCameraFullscreen() {
+    const stage = document.getElementById('camera-stage');
+    if (document.fullscreenElement === stage) {
+        await document.exitFullscreen();
+    } else if (stage.classList.contains('is-expanded')) {
+        stage.classList.remove('is-expanded');
+    } else {
+        try {
+            await stage.requestFullscreen();
+        } catch (error) {
+            // Expand inside the page when native fullscreen isn't available.
+            stage.classList.add('is-expanded');
+        }
+    }
+    updateCameraFullscreenButton();
+}
+
+document.addEventListener('fullscreenchange', updateCameraFullscreenButton);
+document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+        document.getElementById('camera-stage').classList.remove('is-expanded');
+        updateCameraFullscreenButton();
+    }
+});
 
 function stopStream(message = '') {
     const img = document.getElementById('camera-display');

@@ -15,6 +15,7 @@ function page(name, { status = 'Telemetry Feed', timestamp, storedView = 'grid',
         return nodes[id] = {
             id, dataset: {}, style: {}, hidden: false, textContent: '',
             removeAttribute(name) { delete this[name]; },
+            setAttribute(name, value) { this[name] = value; },
             getContext: () => ({}),
             classList: {
                 add: name => classes.add(name),
@@ -28,7 +29,7 @@ function page(name, { status = 'Telemetry Feed', timestamp, storedView = 'grid',
         'telemetry-live-dot', 'telemetry-status-label', 'thermal-range-badge',
         'gallery-grid-view', 'gallery-log-view', 'timelapse-btn', 'camera-display',
         'camera-empty', 'stream-live-pill', 'stream-loading', 'camera-caption',
-        'toggle-stream-btn']) element(id);
+        'toggle-stream-btn', 'camera-stage', 'camera-fullscreen-btn']) element(id);
     if (reports) for (const id of ['view-grid-btn', 'view-log-btn']) element(id);
     nodes['telemetry-status-label'].dataset.status = status;
     nodes['live-readings'].dataset.staleAfter = '180';
@@ -40,7 +41,7 @@ function page(name, { status = 'Telemetry Feed', timestamp, storedView = 'grid',
             documentElement: { getAttribute: () => 'dark' },
             getElementById: id => nodes[id] || null,
             querySelectorAll: () => [],
-            addEventListener() {},
+            addEventListener: (name, fn) => { listeners[name] = fn; },
             body: { addEventListener: (name, fn) => { listeners[name] = fn; } },
         },
         localStorage: { getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value) },
@@ -60,7 +61,7 @@ function page(name, { status = 'Telemetry Feed', timestamp, storedView = 'grid',
         .replaceAll('{{ config.stream_max_session_sec }}', '300');
     vm.runInContext(script, context);
     return {
-        nodes, listeners, storage, timers,
+        nodes, listeners, storage, timers, document: context.document,
         run: code => vm.runInContext(code, context),
         fetch: fn => { fetchHistory = fn; },
     };
@@ -69,6 +70,50 @@ function page(name, { status = 'Telemetry Feed', timestamp, storedView = 'grid',
 const reading = {
     timestamp: new Date().toISOString(), temp_f: 60, root_temp_f: 58, humidity: 65, vpd_kpa: 0.5,
 };
+
+test('camera expands inside the page when native fullscreen is unavailable', async () => {
+    const p = page('dashboard.html');
+    await p.run('toggleCameraFullscreen()');
+    assert.equal(p.nodes['camera-stage'].classList.contains('is-expanded'), true);
+    assert.equal(p.nodes['camera-fullscreen-btn'].textContent, '✕ Exit fullscreen');
+    p.listeners.keydown({ key: 'Escape' });
+    assert.equal(p.nodes['camera-stage'].classList.contains('is-expanded'), false);
+    assert.equal(p.nodes['camera-fullscreen-btn'].textContent, '⛶ Fullscreen');
+});
+
+test('camera fullscreen button also closes the page expansion', async () => {
+    const p = page('dashboard.html');
+    await p.run('toggleCameraFullscreen();');
+    await p.run('toggleCameraFullscreen();');
+    assert.equal(p.nodes['camera-stage'].classList.contains('is-expanded'), false);
+});
+
+test('camera uses native fullscreen and keeps the exit button synchronized', async () => {
+    const p = page('dashboard.html');
+    const stage = p.nodes['camera-stage'];
+    stage.requestFullscreen = async () => { p.document.fullscreenElement = stage; };
+    p.document.exitFullscreen = async () => { p.document.fullscreenElement = null; };
+    await p.run('toggleCameraFullscreen()');
+    assert.equal(p.document.fullscreenElement, stage);
+    assert.equal(stage.classList.contains('is-expanded'), false);
+    assert.equal(p.nodes['camera-fullscreen-btn']['aria-label'], 'Exit camera fullscreen');
+    await p.run('toggleCameraFullscreen()');
+    assert.equal(p.document.fullscreenElement, null);
+    assert.equal(p.nodes['camera-fullscreen-btn']['aria-label'], 'Enter camera fullscreen');
+    p.document.fullscreenElement = stage;
+    p.listeners.fullscreenchange();
+    assert.equal(p.nodes['camera-fullscreen-btn'].textContent, '✕ Exit fullscreen');
+    p.document.fullscreenElement = null;
+    p.listeners.fullscreenchange();
+    assert.equal(p.nodes['camera-fullscreen-btn'].textContent, '⛶ Fullscreen');
+});
+
+test('a rejected fullscreen request falls back to page expansion', async () => {
+    const p = page('dashboard.html');
+    p.nodes['camera-stage'].requestFullscreen = async () => { throw new Error('unsupported'); };
+    await p.run('toggleCameraFullscreen()');
+    assert.equal(p.nodes['camera-stage'].classList.contains('is-expanded'), true);
+});
 
 test('live view shows loading until the first stream image loads', () => {
     const p = page('dashboard.html');

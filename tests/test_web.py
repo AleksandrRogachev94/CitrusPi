@@ -1,5 +1,6 @@
 """Tests for the web API endpoints."""
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -178,5 +179,31 @@ def test_cache_busting_version_in_html(tmp_path: Path) -> None:
     r = tc.get("/")
     assert r.status_code == 200
     assert 'href="/static/style.css?v=' in r.text
+
+
+def test_temperature_cards_show_only_last_24_hours_range(tmp_path: Path) -> None:
+    cfg = Config(mock_sensors=True, data_dir=tmp_path / "data", captures_dir=tmp_path / "captures")
+    store = Store(cfg.data_dir)
+    now = datetime.now(UTC)
+    for age, canopy, root in ((25, -20, -10), (2, 10, 12), (1, 20, 16)):
+        store.insert(Reading.create(
+            timestamp=(now - timedelta(hours=age)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            temp_c=canopy, root_temp_c=root,
+        ))
+    client = TestClient(create_app(cfg, store, SensorHub(cfg)))
+    for url in ("/", "/fragments/readings"):
+        html = client.get(url).text
+        assert "24h · Low 50.0°F · High 68.0°F" in html
+        assert "24h · Low 53.6°F · High 60.8°F" in html
+        assert "24h · Low -4.0°F" not in html
+
+
+def test_temperature_range_hidden_when_there_are_no_measurements(tmp_path: Path) -> None:
+    cfg = Config(mock_sensors=True, data_dir=tmp_path / "data", captures_dir=tmp_path / "captures")
+    store = Store(cfg.data_dir)
+    store.insert(Reading.create())
+    client = TestClient(create_app(cfg, store, SensorHub(cfg)))
+    for url in ("/", "/fragments/readings"):
+        assert "24h · Low" not in client.get(url).text
 
 

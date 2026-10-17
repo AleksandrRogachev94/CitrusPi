@@ -65,6 +65,7 @@ def create_app(
             name="dashboard.html",
             context={
                 "reading": latest,
+                "summary": store.summary_last_hours(24),
                 "photo": photo,
                 "latest_report": latest_report,
                 "is_mock": sensors.is_mock,
@@ -147,6 +148,7 @@ def create_app(
             name="_readings.html",
             context={
                 "reading": latest,
+                "summary": store.summary_last_hours(24),
             },
         )
 

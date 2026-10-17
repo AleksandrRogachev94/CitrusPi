@@ -97,8 +97,25 @@ poll_interval_sec: 60     # Sensor interval (seconds)
 daily_capture_hour: 22    # 10 PM daily timelapse photo
 daily_capture_minute: 0
 stream_fps: 5             # Live preview framerate
+stream_width: 1280        # Live preview: 720p
+stream_height: 720
+capture_width: 1920       # Daily saved photos: Full HD (1080p)
+capture_height: 1080
 port: 80                  # Port 80 allows direct http://citruspi.local
 ```
+
+Live preview and daily photos use separate resolutions. Daily capture opens the camera
+at the configured photo resolution even while live view is running. Capture logs report
+the actual saved dimensions and warn if the camera returns a different size.
+
+The camera fullscreen button works with both live view and daily photos. It uses native
+fullscreen when available and expands inside the page otherwise; Escape exits.
+Temperature cards show the last 24 hours' minimum and maximum from stored readings.
+
+When ntfy notifications are configured, a daily photo still missing 30 minutes after
+its scheduled time triggers one warning for that date. Capture retries continue;
+failed notification deliveries are retried on subsequent scheduler checks. Late-night
+schedules are checked after midnight when their grace period ends.
 
 ---
 

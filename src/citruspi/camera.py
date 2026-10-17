@@ -115,8 +115,8 @@ def _acquire_stream_handle(config: Config) -> bool:
                         new_cap.release()
                 return False
 
-            new_cap.set(cv2.CAP_PROP_FRAME_WIDTH, min(640, config.capture_width))
-            new_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, min(480, config.capture_height))
+            new_cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.stream_width)
+            new_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.stream_height)
             try:
                 new_cap.set(cv2.CAP_PROP_FOURCC, _mjpg_fourcc(cv2))
             except Exception as exc:
@@ -307,11 +307,16 @@ def capture_frame(config: Config, filename: str) -> Path | None:
                 finally:
                     cap.release()
 
+            h, w = frame.shape[:2]
+            if is_daily and (w, h) != (config.capture_width, config.capture_height):
+                logger.warning(
+                    "Camera returned %dx%d for daily photo; requested %dx%d",
+                    w, h, config.capture_width, config.capture_height,
+                )
             if not cv2.imwrite(str(tmp_path), frame, [cv2.IMWRITE_JPEG_QUALITY, 85]):
                 logger.error("cv2.imwrite failed writing to %s", tmp_path)
                 return None
             os.replace(tmp_path, target_path)
-            h, w = frame.shape[:2]
             size_kb = target_path.stat().st_size / 1024
             logger.info("📸 Captured photo (%dx%d, %.1f KB) → %s", w, h, size_kb, target_path)
             return target_path

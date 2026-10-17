@@ -262,6 +262,7 @@ def test_mjpg_fourcc_variants() -> None:
 
 
 def test_capture_frame_daily_releases_stream_handle(tmp_path: Path) -> None:
+    import cv2
     import numpy as np
 
     cfg = Config(
@@ -271,21 +272,14 @@ def test_capture_frame_daily_releases_stream_handle(tmp_path: Path) -> None:
         capture_height=1080,
     )
 
-    fake_stream_cap = FakeCap(opened=True, frames=[np.zeros((480, 640, 3), dtype=np.uint8)])
+    fake_stream_cap = FakeCap(opened=True, frames=[np.zeros((720, 1280, 3), dtype=np.uint8)])
     fake_daily_cap = FakeCap(opened=True, frames=[np.zeros((1080, 1920, 3), dtype=np.uint8)])
 
     # Setup active stream handle
     with camera._CAMERA_LOCK:
         camera._active_cap = fake_stream_cap
 
-    def mock_imwrite(path: str, *args: Any) -> bool:
-        Path(path).write_bytes(b"fake-jpeg-data")
-        return True
-
-    with (
-        patch("citruspi.camera._open_video_capture", return_value=fake_daily_cap),
-        patch("cv2.imwrite", side_effect=mock_imwrite),
-    ):
+    with patch("citruspi.camera._open_video_capture", return_value=fake_daily_cap):
         # Daily photo should release the active stream handle and take full-res capture
         res = camera.capture_frame(cfg, filename="2026-10-14.jpg")
         assert res is not None
@@ -294,6 +288,34 @@ def test_capture_frame_daily_releases_stream_handle(tmp_path: Path) -> None:
         # Verify 25 warmup frames were read from the new daily cap + 1 final frame
         assert fake_daily_cap.read_count == 26
         assert fake_daily_cap.release_count == 1
+        assert (cv2.CAP_PROP_FRAME_WIDTH, 1920) in fake_daily_cap.set_calls
+        assert (cv2.CAP_PROP_FRAME_HEIGHT, 1080) in fake_daily_cap.set_calls
+        assert cv2.imread(str(res)).shape[:2] == (1080, 1920)
+
+
+def test_live_stream_requests_720p_independently_of_photo_resolution() -> None:
+    import cv2
+
+    cfg = Config()
+    cap = FakeCap()
+    with (
+        patch("citruspi.camera._open_video_capture", return_value=cap),
+        patch("citruspi.camera._ensure_reaper"),
+    ):
+        assert camera._acquire_stream_handle(cfg)
+    assert (cv2.CAP_PROP_FRAME_WIDTH, 1280) in cap.set_calls
+    assert (cv2.CAP_PROP_FRAME_HEIGHT, 720) in cap.set_calls
+    assert (cfg.capture_width, cfg.capture_height) == (1920, 1080)
+
+
+def test_daily_photo_warns_when_camera_returns_lower_resolution(tmp_path: Path, caplog) -> None:
+    import numpy as np
+
+    cfg = Config(captures_dir=tmp_path)
+    cap = FakeCap(frames=[np.zeros((720, 1280, 3), dtype=np.uint8)])
+    with patch("citruspi.camera._open_video_capture", return_value=cap):
+        assert camera.capture_frame(cfg, "2026-10-17.jpg") is not None
+    assert "Camera returned 1280x720 for daily photo; requested 1920x1080" in caplog.text
 
 
 

@@ -39,6 +39,9 @@
                     {{ "%.1f"|format(reading.temp_c) }}°C
                 {% endif %}
             </div>
+            {% if summary.temp_min_f is not none %}
+            <div class="card-sub">24h · Low {{ "%.1f"|format(summary.temp_min_f) }}°F · High {{ "%.1f"|format(summary.temp_max_f) }}°F</div>
+            {% endif %}
         </div>
     </div>
 
@@ -85,6 +88,9 @@
                     Probe offline
                 {% endif %}
             </div>
+            {% if summary.root_temp_min_f is not none %}
+            <div class="card-sub">24h · Low {{ "%.1f"|format(summary.root_temp_min_f) }}°F · High {{ "%.1f"|format(summary.root_temp_max_f) }}°F</div>
+            {% endif %}
         </div>
     </div>
 </section>

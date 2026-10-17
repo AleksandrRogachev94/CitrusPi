@@ -6,6 +6,8 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from citruspi.alerts import AlertManager
 from citruspi.config import Config
 from citruspi.runner import daily_tick, sensor_tick
@@ -228,6 +230,87 @@ def test_daily_tick_dark_frame_retries_when_ntfy_fails(tmp_path: Path) -> None:
         # Third tick on same day must not alert again (already succeeded today)
         daily_tick(cfg, store, now=target_time, alerts=alerts)
         assert mock_ntfy.call_count == 2
+
+
+@pytest.mark.parametrize(("hour", "minute", "now", "expected"), [
+    (22, 0, datetime(2026, 10, 17, 22, 29), False),
+    (22, 0, datetime(2026, 10, 17, 22, 30), True),
+    (22, 0, datetime(2026, 10, 18, 0, 10), False),
+    (23, 50, datetime(2026, 10, 18, 0, 19), False),
+    (23, 50, datetime(2026, 10, 18, 0, 20), True),
+])
+def test_missing_photo_alert_grace_and_midnight(
+    tmp_path: Path, hour: int, minute: int, now: datetime, expected: bool,
+) -> None:
+    cfg = Config(data_dir=tmp_path / "data", captures_dir=tmp_path / "captures",
+                 ntfy_topic="test-topic", daily_capture_hour=hour, daily_capture_minute=minute)
+    store = Store(cfg.data_dir)
+    alerts = AlertManager(cfg)
+    with (
+        patch("citruspi.camera.check_and_take_daily_capture", return_value=None),
+        patch.object(alerts, "send_ntfy", return_value=True) as notify,
+    ):
+        daily_tick(cfg, store, now=now, alerts=alerts)
+        assert notify.call_count == int(expected)
+        if expected:
+            assert notify.call_args.kwargs["title"] == "WARNING: Daily Photo Missing"
+            assert "2026-10-17" in notify.call_args.kwargs["message"]
+
+
+@pytest.mark.parametrize(("contents", "expected"), [(None, True), (b"", True), (b"photo", False)])
+def test_missing_photo_alert_checks_saved_file(tmp_path: Path, contents, expected: bool) -> None:
+    cfg = Config(data_dir=tmp_path / "data", captures_dir=tmp_path / "captures", ntfy_topic="test")
+    cfg.captures_dir.mkdir()
+    if contents is not None:
+        (cfg.captures_dir / "2026-10-17.jpg").write_bytes(contents)
+    store = Store(cfg.data_dir)
+    alerts = AlertManager(cfg)
+    with (
+        patch("citruspi.camera.check_and_take_daily_capture", return_value=None),
+        patch("citruspi.runner.check_frame_brightness", return_value=True),
+        patch.object(alerts, "send_ntfy", return_value=True) as notify,
+    ):
+        daily_tick(cfg, store, now=datetime(2026, 10, 17, 22, 40), alerts=alerts)
+        assert notify.call_count == int(expected)
+
+
+def test_missing_photo_alert_retries_delivery_and_resets_next_day(tmp_path: Path) -> None:
+    cfg = Config(data_dir=tmp_path / "data", captures_dir=tmp_path / "captures", ntfy_topic="test")
+    store = Store(cfg.data_dir)
+    alerts = AlertManager(cfg)
+    with (
+        patch("citruspi.camera.check_and_take_daily_capture", return_value=None),
+        patch.object(alerts, "send_ntfy", side_effect=[False, True, True]) as notify,
+    ):
+        for _ in range(3):
+            daily_tick(cfg, store, now=datetime(2026, 10, 17, 22, 40), alerts=alerts)
+        assert notify.call_count == 2
+        daily_tick(cfg, store, now=datetime(2026, 10, 18, 22, 40), alerts=alerts)
+        assert notify.call_count == 3
+
+
+def test_missing_photo_alert_survives_capture_exception(tmp_path: Path) -> None:
+    cfg = Config(data_dir=tmp_path / "data", captures_dir=tmp_path / "captures", ntfy_topic="test")
+    store = Store(cfg.data_dir)
+    alerts = AlertManager(cfg)
+    with (
+        patch("citruspi.camera.check_and_take_daily_capture", side_effect=OSError("disk full")),
+        patch.object(alerts, "send_ntfy", return_value=True) as notify,
+    ):
+        daily_tick(cfg, store, now=datetime(2026, 10, 17, 22, 40), alerts=alerts)
+        notify.assert_called_once()
+
+
+def test_missing_photo_alert_disabled_without_topic(tmp_path: Path) -> None:
+    cfg = Config(data_dir=tmp_path / "data", captures_dir=tmp_path / "captures")
+    store = Store(cfg.data_dir)
+    alerts = AlertManager(cfg)
+    with (
+        patch("citruspi.camera.check_and_take_daily_capture", return_value=None),
+        patch.object(alerts, "send_ntfy") as notify,
+    ):
+        daily_tick(cfg, store, now=datetime(2026, 10, 17, 22, 40), alerts=alerts)
+        notify.assert_not_called()
 
 
 

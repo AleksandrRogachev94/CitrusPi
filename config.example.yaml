@@ -20,6 +20,10 @@ camera_device_index: 0
 capture_width: 1920
 capture_height: 1080
 
+# Live preview is independent of the Full HD daily photo resolution.
+stream_width: 1280
+stream_height: 720
+
 # Daily timelapse photo schedule
 # Snaps 1 photo per day during the lights-on photoperiod (e.g. 22:00 = 10 PM if lights run overnight 20:00–06:00).
 # Ensure daily_capture_hour falls during the tent's light cycle so images are well-illuminated.

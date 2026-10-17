@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from citruspi import camera
@@ -30,6 +30,38 @@ _ai_attempt_date: str = ""
 _ai_permanent_failure_date: str = ""
 _last_dark_alert_date: str = ""
 _last_brightness_check_date: str = ""
+_last_missing_photo_alert_date: str = ""
+_CAPTURE_ALERT_GRACE = timedelta(minutes=30)
+
+
+def _check_missing_capture(config: Config, alerts: AlertManager | None, now: datetime) -> None:
+    """Warn once after a photo is 30 minutes late; allow retries if delivery fails."""
+    global _last_missing_photo_alert_date
+    if alerts is None or not config.ntfy_topic:
+        return
+    scheduled = now.replace(
+        hour=config.daily_capture_hour, minute=config.daily_capture_minute,
+        second=0, microsecond=0,
+    )
+    if now < scheduled + _CAPTURE_ALERT_GRACE:
+        scheduled -= timedelta(days=1)
+    deadline = scheduled + _CAPTURE_ALERT_GRACE
+    # For a late-night schedule, the grace period can end after midnight.
+    if deadline.date() != now.date() or now < deadline:
+        return
+    date_str = scheduled.strftime("%Y-%m-%d")
+    photo = config.captures_dir / f"{date_str}.jpg"
+    if date_str == _last_missing_photo_alert_date or (photo.is_file() and photo.stat().st_size):
+        return
+    if alerts.send_ntfy(
+        title="WARNING: Daily Photo Missing",
+        message=(f"No daily photo saved for {date_str}, scheduled at "
+                 f"{config.daily_capture_hour:02d}:{config.daily_capture_minute:02d}. "
+                 "Capture is at least 30 minutes late. Check camera and storage."),
+        priority="high",
+        tags="camera,warning",
+    ):
+        _last_missing_photo_alert_date = date_str
 
 
 def sensor_tick(
@@ -68,7 +100,12 @@ def daily_tick(
     curr_now = now or datetime.now()
     today_str = curr_now.strftime("%Y-%m-%d")
 
-    photo_path = camera.check_and_take_daily_capture(config, now=curr_now)
+    try:
+        photo_path = camera.check_and_take_daily_capture(config, now=curr_now)
+    except Exception:
+        logger.exception("Daily photo capture failed")
+        photo_path = None
+    _check_missing_capture(config, alerts, curr_now)
     if photo_path:
         logger.info("Daily timelapse capture taken: %s", photo_path)
 

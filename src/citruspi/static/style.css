@@ -452,6 +452,35 @@ button:active { transform: scale(0.98); }
     display: block;
 }
 
+.camera-fullscreen-btn {
+    position: absolute;
+    top: 0.65rem;
+    right: 0.65rem;
+    z-index: 20;
+    font-size: 0.75rem;
+}
+
+.camera-stage:fullscreen,
+.camera-stage.is-expanded {
+    width: 100vw;
+    height: 100vh;
+    max-width: none;
+    aspect-ratio: auto;
+    border: 0;
+    border-radius: 0;
+}
+
+.camera-stage.is-expanded {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+}
+
+.camera-stage:fullscreen .camera-img,
+.camera-stage.is-expanded .camera-img {
+    object-fit: contain;
+}
+
 .stream-loading {
     position: absolute;
     inset: 0;
