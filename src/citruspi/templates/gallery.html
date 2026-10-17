@@ -4,27 +4,27 @@
 
 <section class="gallery-controls">
     <h1>📷 Daily Timelapse Gallery</h1>
-    <p class="muted">One high-res frame captured daily during photoperiod to observe leaf health and leaf drop over time.</p>
+    <p class="muted">Daily photos and health reports to track your trees over time.</p>
 </section>
 
 {% if photos or reports %}
 <section class="gallery-toolbar">
     <div class="gallery-toolbar-left">
-        <span><strong>{{ photos|length }}</strong> daily frames</span>
+        <span><strong>{{ photos|length }}</strong> daily {{ 'frame' if photos|length == 1 else 'frames' }}</span>
         {% if reports %}
         <span class="toolbar-sep">·</span>
-        <span><strong>{{ reports|length }}</strong> AI health reports</span>
+        <span><strong>{{ reports|length }}</strong> health {{ 'report' if reports|length == 1 else 'reports' }}</span>
         {% endif %}
     </div>
     <div class="gallery-toolbar-right">
         {% if reports %}
-        <div class="range-selector" role="group" aria-label="Gallery view mode">
-            <button type="button" id="view-grid-btn" class="range-btn active" onclick="switchGalleryView('grid')">🖼️ Grid</button>
-            <button type="button" id="view-log-btn" class="range-btn" onclick="switchGalleryView('log')">📋 Health Log</button>
+        <div class="range-selector gallery-view-switch" role="group" aria-label="Gallery view mode">
+            <button type="button" id="view-grid-btn" class="range-btn active" aria-pressed="true" aria-controls="gallery-grid-view" onclick="switchGalleryView('grid')">Grid</button>
+            <button type="button" id="view-log-btn" class="range-btn" aria-pressed="false" aria-controls="gallery-log-view" onclick="switchGalleryView('log')">Health Log</button>
         </div>
         {% endif %}
         {% if photos %}
-        <button id="timelapse-btn" onclick="startTimelapse()">▶ Play Timelapse</button>
+        <button type="button" id="timelapse-btn" class="gallery-play-btn" onclick="startTimelapse()"><span aria-hidden="true">▶</span> Play timelapse</button>
         {% endif %}
     </div>
 </section>
@@ -144,21 +144,28 @@ function switchGalleryView(view) {
     const logView = document.getElementById('gallery-log-view');
     const gridBtn = document.getElementById('view-grid-btn');
     const logBtn = document.getElementById('view-log-btn');
-    const tlBtn = document.getElementById('timelapse-btn');
 
     if (view === 'log' && logBtn) {
         if (gridView) gridView.style.display = 'none';
         if (logView) logView.style.display = 'flex';
-        if (gridBtn) gridBtn.classList.remove('active');
-        if (logBtn) logBtn.classList.add('active');
-        if (tlBtn) tlBtn.style.display = 'none';
+        if (gridBtn) {
+            gridBtn.classList.remove('active');
+            gridBtn.setAttribute('aria-pressed', 'false');
+        }
+        logBtn.classList.add('active');
+        logBtn.setAttribute('aria-pressed', 'true');
         localStorage.setItem('citruspi-gallery-view', 'log');
     } else {
         if (gridView) gridView.style.display = 'grid';
         if (logView) logView.style.display = 'none';
-        if (gridBtn) gridBtn.classList.add('active');
-        if (logBtn) logBtn.classList.remove('active');
-        if (tlBtn) tlBtn.style.display = 'inline-block';
+        if (gridBtn) {
+            gridBtn.classList.add('active');
+            gridBtn.setAttribute('aria-pressed', 'true');
+        }
+        if (logBtn) {
+            logBtn.classList.remove('active');
+            logBtn.setAttribute('aria-pressed', 'false');
+        }
         localStorage.setItem('citruspi-gallery-view', 'grid');
     }
 }

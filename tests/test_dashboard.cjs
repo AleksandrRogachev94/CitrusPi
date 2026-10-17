@@ -298,7 +298,7 @@ test('saved health-log preference falls back to photos when reports are absent',
     const p = page('gallery.html', { storedView: 'log', reports: false });
     assert.equal(p.nodes['gallery-grid-view'].style.display, 'grid');
     assert.equal(p.nodes['gallery-log-view'].style.display, 'none');
-    assert.equal(p.nodes['timelapse-btn'].style.display, 'inline-block');
+    assert.notEqual(p.nodes['timelapse-btn'].style.display, 'none');
     assert.equal(p.storage.get('citruspi-gallery-view'), 'grid');
 });
 
@@ -306,4 +306,10 @@ test('health-log preference is retained when reports exist', () => {
     const p = page('gallery.html', { storedView: 'log' });
     assert.equal(p.nodes['gallery-grid-view'].style.display, 'none');
     assert.equal(p.nodes['gallery-log-view'].style.display, 'flex');
+    assert.notEqual(p.nodes['timelapse-btn'].style.display, 'none');
+    assert.equal(p.nodes['view-log-btn']['aria-pressed'], 'true');
+    p.run("switchGalleryView('grid')");
+    assert.notEqual(p.nodes['timelapse-btn'].style.display, 'none');
+    assert.equal(p.nodes['view-grid-btn']['aria-pressed'], 'true');
+    assert.equal(p.nodes['view-log-btn']['aria-pressed'], 'false');
 });
