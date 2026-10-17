@@ -34,6 +34,14 @@ def create_app(
     app = FastAPI(title="CitrusPi", version="0.1.0")
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
+    def static_version(filename: str = "style.css") -> str:
+        target = _STATIC_DIR / filename
+        if target.is_file():
+            return str(int(target.stat().st_mtime))
+        return "1"
+
+    templates.env.globals["static_version"] = static_version
+
     # Serve static assets (CSS/JS)
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 

@@ -143,3 +143,16 @@ def test_api_reports(tmp_path: Path) -> None:
     assert data[0]["status"] == "alert"
     assert data[0]["leaf_drop"] == 1
 
+
+def test_cache_busting_version_in_html(tmp_path: Path) -> None:
+    cfg = Config(mock_sensors=True, data_dir=tmp_path / "data")
+    store = Store(cfg.data_dir)
+    sensors = SensorHub(cfg)
+    app = create_app(cfg, store, sensors)
+    tc = TestClient(app)
+
+    r = tc.get("/")
+    assert r.status_code == 200
+    assert 'href="/static/style.css?v=' in r.text
+
+
