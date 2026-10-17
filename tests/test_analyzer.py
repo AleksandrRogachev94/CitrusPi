@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -36,16 +36,36 @@ def store(test_config: Config) -> Store:
     return Store(test_config.data_dir)
 
 
+# Valid 20x20 mid-gray JPEG image decodable by OpenCV and other image tools
+_VALID_TEST_JPEG = (
+    b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00\xff\xdb\x00C\x00\x02\x01\x01"
+    b"\x01\x01\x01\x02\x01\x01\x01\x02\x02\x02\x02\x02\x04\x03\x02\x02\x02\x02\x05\x04\x04\x03\x04\x06"
+    b"\x05\x06\x06\x06\x05\x06\x06\x06\x07\t\x08\x06\x07\t\x07\x06\x06\x08\x0b\x08\t\n\n\n\n\n\x06\x08"
+    b"\x0b\x0c\x0b\n\x0c\t\n\n\n\xff\xdb\x00C\x01\x02\x02\x02\x02\x02\x02\x05\x03\x03\x05\n\x07\x06\x07"
+    b"\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n"
+    b"\n\n\xff\xc0\x00\x11\x08\x00\x14\x00\x14\x03\x01\"\x00\x02\x11\x01\x03\x11\x01\xff\xc4\x00\x1f\x00"
+    b"\x00\x01\x05\x01\x01\x01\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x01\x02\x03\x04\x05\x06\x07"
+    b"\x08\t\n\x0b\xff\xc4\x00\xb5\x10\x00\x02\x01\x03\x03\x02\x04\x03\x05\x05\x04\x04\x00\x00\x01}\x01"
+    b"\x02\x03\x00\x04\x11\x05\x12!1A\x06\x13Qa\x07\"q\x142\x81\x91\xa1\x08#B\xb1\xc1\x15R\xd1\xf0$3br"
+    b"\x82\t\n\x16\x17\x18\x19\x1a%&\'()*456789:CDEFGHIJSTUVWXYZcdefghijstuvwxyz\x83\x84\x85\x86\x87\x88"
+    b"\x89\x8a\x92\x93\x94\x95\x96\x97\x98\x99\x9a\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xb2\xb3\xb4\xb5"
+    b"\xb6\xb7\xb8\xb9\xba\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xd2\xd3\xd4\xd5\xd6\xd7\xd8\xd9\xda\xe1"
+    b"\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xff\xc4\x00\x1f\x01"
+    b"\x00\x03\x01\x01\x01\x01\x01\x01\x01\x01\x01\x00\x00\x00\x00\x00\x00\x01\x02\x03\x04\x05\x06\x07"
+    b"\x08\t\n\x0b\xff\xc4\x00\xb5\x11\x00\x02\x01\x02\x04\x04\x03\x04\x07\x05\x04\x04\x00\x01\x02w\x00"
+    b"\x01\x02\x03\x11\x04\x05!1\x06\x12AQ\x07aq\x13\"2\x81\x08\x14B\x91\xa1\xb1\xc1\t#3R\xf0\x15br"
+    b"\xd1\n\x16$4\xe1%\xf1\x17\x18\x19\x1a&\'()*56789:CDEFGHIJSTUVWXYZcdefghijstuvwxyz\x82\x83\x84\x85"
+    b"\x86\x87\x88\x89\x8a\x92\x93\x94\x95\x96\x97\x98\x99\x9a\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xb2"
+    b"\xb3\xb4\xb5\xb6\xb7\xb8\xb9\xba\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xd2\xd3\xd4\xd5\xd6\xd7\xd8"
+    b"\xd9\xda\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xff\xda\x00\x0c"
+    b"\x03\x01\x00\x02\x11\x03\x11\x00?\x00(\xa2\x8a\x00(\xa2\x8a\x00(\xa2\x8a\x00(\xa2\x8a\x00\xff\xd9"
+)
+
+
 def _make_dummy_photo(path: Path) -> Path:
     """Create a minimal valid file for photo testing."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    # Minimal 1x1 JPEG
-    path.write_bytes(
-        b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
-        b"\xff\xdb\x00C\x00\x08\x06\x06\x07\x06\x05\x08\x07\x07\x07\t\t\x08\n\x0c"
-        b"\xff\xc0\x00\x0b\x08\x00\x01\x00\x01\x01\x01\x11\x00\xff\xda\x00\x08"
-        b"\x01\x01\x00\x00?\x00\xbf\x00\xff\xd9"
-    )
+    path.write_bytes(_VALID_TEST_JPEG)
     return path
 
 
@@ -82,17 +102,33 @@ def test_find_historical_photo_closest_within_tolerance(tmp_path: Path) -> None:
     today_date = date(2026, 10, 13)
 
     # Target is T-7 (2026-10-06). Both 2026-10-05 and 2026-10-07 are within tolerance 2 (diff 1).
+    # Deterministic tie-breaking picks the older photo (2026-10-05) to ensure a wider baseline.
     match = find_historical_photo(
         captures, today_date=today_date, days_ago=7, tolerance_days=2
     )
     assert match is not None
-    assert match.name in {"2026-10-05.jpg", "2026-10-07.jpg"}
+    assert match.name == "2026-10-05.jpg"
 
     # Target is T-7 (2026-10-06) with tolerance 0. Neither matches.
     match_strict = find_historical_photo(
         captures, today_date=today_date, days_ago=7, tolerance_days=0
     )
     assert match_strict is None
+
+
+def test_find_historical_photo_skips_zero_byte_files(tmp_path: Path) -> None:
+    captures = tmp_path / "captures"
+    captures.mkdir(parents=True, exist_ok=True)
+    empty_file = captures / "2026-10-12.jpg"
+    empty_file.write_bytes(b"")  # 0-byte file
+    valid_file = _make_dummy_photo(captures / "2026-10-11.jpg")
+    today_date = date(2026, 10, 13)
+
+    match = find_historical_photo(
+        captures, today_date=today_date, days_ago=1, tolerance_days=1
+    )
+    assert match is not None
+    assert match.name == valid_file.name
 
 
 def test_find_historical_photo_respects_exclude(tmp_path: Path) -> None:
@@ -231,9 +267,11 @@ def test_api_key_sent_as_header_and_absent_from_url(
         assert call_args.kwargs["timeout"] == 60.0 or call_args.kwargs["timeout"] == 60
         gen_config = call_args.kwargs["json"]["generationConfig"]
         assert gen_config["responseMimeType"] == "application/json"
-        assert gen_config["mediaResolution"] == "MEDIA_RESOLUTION_HIGH"
-        assert "responseSchema" in gen_config
-        assert gen_config["responseSchema"]["propertyOrdering"] == ["summary", "leaf_drop", "status"]
+        assert gen_config["responseSchema"]["propertyOrdering"] == [
+            "summary",
+            "leaf_drop",
+            "status",
+        ]
         assert "systemInstruction" in call_args.kwargs["json"]
 
 
@@ -442,13 +480,16 @@ def test_parse_analysis_response() -> None:
     assert parse_analysis_response("not valid json") is None
 
     # String boolean rejected (strict bool required)
-    assert parse_analysis_response('{"status": "healthy", "leaf_drop": "false", "summary": "ok"}') is None
+    invalid_bool = '{"status": "healthy", "leaf_drop": "false", "summary": "ok"}'
+    assert parse_analysis_response(invalid_bool) is None
 
     # Empty / whitespace summary rejected
-    assert parse_analysis_response('{"status": "healthy", "leaf_drop": false, "summary": "   "}') is None
+    empty_summary = '{"status": "healthy", "leaf_drop": false, "summary": "   "}'
+    assert parse_analysis_response(empty_summary) is None
 
     # Unknown status enum rejected
-    assert parse_analysis_response('{"status": "unknown", "leaf_drop": false, "summary": "ok"}') is None
+    unknown_status = '{"status": "unknown", "leaf_drop": false, "summary": "ok"}'
+    assert parse_analysis_response(unknown_status) is None
 
 
 def test_call_gemini_api_ignores_thought_parts() -> None:
@@ -501,3 +542,107 @@ def test_get_system_instruction_formats_layout(test_config: Config) -> None:
     instruction = get_system_instruction(test_config)
     assert test_config.plant_layout in instruction
     assert "<<PLANT_LAYOUT>>" not in instruction
+
+
+def test_build_analysis_request_signature_and_structure(test_config: Config) -> None:
+    from citruspi.analyzer import build_analysis_request
+
+    today_photo = _make_dummy_photo(test_config.captures_dir / "2026-10-13.jpg")
+    parts = build_analysis_request(test_config, today_photo, "2026-10-13")
+    assert len(parts) >= 2
+    assert any("Today is 2026-10-13" in p.get("text", "") for p in parts)
+    assert any("inlineData" in p for p in parts)
+
+
+def test_check_frame_brightness_empty_and_corrupt() -> None:
+    from citruspi.analyzer import check_frame_brightness
+
+    # 0 bytes
+    assert check_frame_brightness(b"") is False
+
+    # Corrupted / invalid image bytes
+    assert check_frame_brightness(b"corrupted binary data not a jpeg") is False
+
+    # Dark frame (20x20 all zeros -> mean brightness 0.0 < 15.0)
+    dark_jpeg = (
+        b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00\xff\xdb\x00C\x00\x02\x01\x01"
+        b"\x01\x01\x01\x02\x01\x01\x01\x02\x02\x02\x02\x02\x04\x03\x02\x02\x02\x02\x05\x04\x04\x03\x04\x06"
+        b"\x05\x06\x06\x06\x05\x06\x06\x06\x07\t\x08\x06\x07\t\x07\x06\x06\x08\x0b\x08\t\n\n\n\n\n\x06\x08"
+        b"\x0b\x0c\x0b\n\x0c\t\n\n\n\xff\xdb\x00C\x01\x02\x02\x02\x02\x02\x02\x05\x03\x03\x05\n\x07\x06\x07"
+        b"\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n"
+        b"\n\n\xff\xc0\x00\x11\x08\x00\x14\x00\x14\x03\x01\"\x00\x02\x11\x01\x03\x11\x01\xff\xc4\x00\x1f\x00"
+        b"\x00\x01\x05\x01\x01\x01\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x01\x02\x03\x04\x05\x06\x07"
+        b"\x08\t\n\x0b\xff\xc4\x00\xb5\x10\x00\x02\x01\x03\x03\x02\x04\x03\x05\x05\x04\x04\x00\x00\x01}\x01"
+        b"\x02\x03\x00\x04\x11\x05\x12!1A\x06\x13Qa\x07\"q\x142\x81\x91\xa1\x08#B\xb1\xc1\x15R\xd1\xf0$3br"
+        b"\x82\t\n\x16\x17\x18\x19\x1a%&\'()*456789:CDEFGHIJSTUVWXYZcdefghijstuvwxyz\x83\x84\x85\x86\x87\x88"
+        b"\x89\x8a\x92\x93\x94\x95\x96\x97\x98\x99\x9a\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xb2\xb3\xb4\xb5"
+        b"\xb6\xb7\xb8\xb9\xba\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xd2\xd3\xd4\xd5\xd6\xd7\xd8\xd9\xda\xe1"
+        b"\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xff\xc4\x00\x1f\x01"
+        b"\x00\x03\x01\x01\x01\x01\x01\x01\x01\x01\x01\x00\x00\x00\x00\x00\x00\x01\x02\x03\x04\x05\x06\x07"
+        b"\x08\t\n\x0b\xff\xc4\x00\xb5\x11\x00\x02\x01\x02\x04\x04\x03\x04\x07\x05\x04\x04\x00\x01\x02w\x00"
+        b"\x01\x02\x03\x11\x04\x05!1\x06\x12AQ\x07aq\x13\"2\x81\x08\x14B\x91\xa1\xb1\xc1\t#3R\xf0\x15br"
+        b"\xd1\n\x16$4\xe1%\xf1\x17\x18\x19\x1a&\'()*56789:CDEFGHIJSTUVWXYZcdefghijstuvwxyz\x82\x83\x84\x85"
+        b"\x86\x87\x88\x89\x8a\x92\x93\x94\x95\x96\x97\x98\x99\x9a\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xb2"
+        b"\xb3\xb4\xb5\xb6\xb7\xb8\xb9\xba\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xd2\xd3\xd4\xd5\xd6\xd7\xd8"
+        b"\xd9\xda\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xff\xda\x00\x0c"
+        b"\x03\x01\x00\x02\x11\x03\x11\x00?\x00\xfe\x7f\xe8\xa2\x8a\x00(\xa2\x8a\x00(\xa2\x8a\x00(\xa2\x8a\x00\xff\xd9"
+    )
+    assert check_frame_brightness(dark_jpeg) is False
+
+    # Valid illuminated 20x20 image (mean brightness ~128.0 >= 15.0)
+    assert check_frame_brightness(_VALID_TEST_JPEG) is True
+
+
+def test_run_daily_analysis_handles_corrupt_photo_without_gemini_call(
+    test_config: Config, store: Store
+) -> None:
+    corrupt_photo = test_config.captures_dir / "2026-10-13.jpg"
+    corrupt_photo.parent.mkdir(parents=True, exist_ok=True)
+    corrupt_photo.write_bytes(b"not an image file at all")
+
+    with patch("httpx.post") as mock_post:
+        result = run_daily_analysis(test_config, store, corrupt_photo)
+
+        # Gemini API must NOT be called when photo cannot be decoded
+        mock_post.assert_not_called()
+        assert result is not None
+        assert result["status"] == "watch"
+        assert "invalid" in result["summary"] or "dark" in result["summary"]
+
+
+def test_run_daily_analysis_respects_injected_now(
+    test_config: Config, store: Store
+) -> None:
+    # Photo with non-date name
+    photo = _make_dummy_photo(test_config.captures_dir / "tent_test.jpg")
+    injected_now = datetime(2026, 11, 20, 14, 30)
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "candidates": [
+            {
+                "content": {
+                    "parts": [
+                        {
+                            "text": json.dumps(
+                                {
+                                    "status": "healthy",
+                                    "leaf_drop": False,
+                                    "summary": "Trees look great.",
+                                }
+                            )
+                        }
+                    ]
+                }
+            }
+        ]
+    }
+
+    with patch("httpx.post", return_value=mock_resp):
+        result = run_daily_analysis(test_config, store, photo, now=injected_now)
+        assert result is not None
+        assert result["date"] == "2026-11-20"
+        report = store.latest_report()
+        assert report is not None
+        assert report["date"] == "2026-11-20"

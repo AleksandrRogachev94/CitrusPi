@@ -62,7 +62,7 @@ def test_daily_tick_runs_scheduled_capture_and_analysis(tmp_path: Path) -> None:
 
         assert photo is not None
         assert photo.name == "2026-10-14.jpg"
-        mock_analysis.assert_called_once_with(cfg, store, photo)
+        mock_analysis.assert_called_once_with(cfg, store, photo, now=target_time)
 
 
 def test_daily_tick_retries_analysis_when_photo_already_exists(tmp_path: Path) -> None:
@@ -89,7 +89,7 @@ def test_daily_tick_retries_analysis_when_photo_already_exists(tmp_path: Path) -
         # photo_path returned is None because capture was already taken
         assert photo is None
         # But analysis was still executed using the existing photo
-        mock_analysis.assert_called_once_with(cfg, store, existing_photo)
+        mock_analysis.assert_called_once_with(cfg, store, existing_photo, now=target_time)
 
 
 def test_daily_tick_skips_analysis_if_already_analyzed_today(tmp_path: Path) -> None:
@@ -212,9 +212,22 @@ def test_daily_tick_dark_frame_retries_when_ntfy_fails(tmp_path: Path) -> None:
     ):
         daily_tick(cfg, store, now=target_time, alerts=alerts)
         assert mock_ntfy.call_count == 1
-        # Because send_ntfy failed, _last_dark_alert_date was NOT set to today
+        # Because send_ntfy failed, _last_dark_alert_date and
+        # _last_brightness_check_date were NOT set to today
         import citruspi.runner as r
         assert r._last_dark_alert_date == ""
+        assert r._last_brightness_check_date == ""
+
+        # Second tick must RETRY sending the dark alert because it previously failed
+        mock_ntfy.return_value = True
+        daily_tick(cfg, store, now=target_time, alerts=alerts)
+        assert mock_ntfy.call_count == 2
+        assert r._last_dark_alert_date == "2026-10-14"
+        assert r._last_brightness_check_date == "2026-10-14"
+
+        # Third tick on same day must not alert again (already succeeded today)
+        daily_tick(cfg, store, now=target_time, alerts=alerts)
+        assert mock_ntfy.call_count == 2
 
 
 

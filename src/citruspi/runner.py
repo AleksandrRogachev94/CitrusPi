@@ -78,10 +78,11 @@ def daily_tick(
         and alerts is not None
         and _last_brightness_check_date != today_str
     ):
-        _last_brightness_check_date = today_str
         try:
             photo_bytes = target_path.read_bytes()
-            if not check_frame_brightness(photo_bytes) and _last_dark_alert_date != today_str:
+            if check_frame_brightness(photo_bytes):
+                _last_brightness_check_date = today_str
+            elif _last_dark_alert_date != today_str:
                 logger.warning(
                     "Daily photo %s is dark — alerting grow light failure", target_path
                 )
@@ -96,6 +97,7 @@ def daily_tick(
                     tags="warning",
                 ):
                     _last_dark_alert_date = today_str
+                    _last_brightness_check_date = today_str
         except Exception:
             logger.exception("Error checking frame brightness for dark alert")
 
@@ -118,7 +120,7 @@ def daily_tick(
         ):
             _ai_daily_attempts += 1
             try:
-                result = run_daily_analysis(config, store, target_path)
+                result = run_daily_analysis(config, store, target_path, now=curr_now)
                 if result is None:
                     _last_ai_failure_time = time.time()
                     logger.warning(

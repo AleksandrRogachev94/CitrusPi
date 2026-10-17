@@ -59,6 +59,12 @@ def find_historical_photo(
         if f_date >= today or f.name in exclude_set:
             continue
 
+        try:
+            if f.stat().st_size == 0:
+                continue
+        except OSError:
+            continue
+
         diff = abs((f_date - target_date).days)
         if diff <= tolerance_days:
             candidates.append((diff, f))
@@ -66,6 +72,9 @@ def find_historical_photo(
     if not candidates:
         return None
 
+    # Sort primarily by day difference from target. In case of a tie (e.g. diff=1 for both
+    # T-8 and T-6 when target is T-7), sorting ascending by filename picks the older date (T-8),
+    # which is preferred as it provides a wider baseline away from T-1.
     candidates.sort(key=lambda c: (c[0], c[1].name))
     return candidates[0][1]
 
@@ -151,9 +160,10 @@ ANALYSIS_SYSTEM_INSTRUCTION = (
     "to see what changed. Report only what is visible; do not guess causes.\n\n"
     "Plant layout:\n<<PLANT_LAYOUT>>\n\n"
     "For each tree assess:\n"
-    "- Condition today: drooping or wilting, leaf curl, yellowing or browning, spotting, thin branches.\n"
-    "- Change since the earlier photos: newly fallen leaves (floor, pot) and anything new, better or "
-    "worse. The 1-day photo shows sudden events, the 7-day photo slow trends.\n"
+    "- Condition today: drooping or wilting, leaf curl, yellowing or browning, "
+    "spotting, thin branches.\n"
+    "- Change since the earlier photos: newly fallen leaves (floor, pot) and anything "
+    "new, better or worse. The 1-day photo shows sudden events, the 7-day photo slow trends.\n"
     "A problem that was already there and is still there is ongoing, not 'no change'.\n\n"
     "Rules:\n"
     "- Judge structure directly. Judge colour only relative to the same tree in the other photos "
@@ -164,7 +174,8 @@ ANALYSIS_SYSTEM_INSTRUCTION = (
     "- If only today's photo is provided, describe condition and claim no change.\n\n"
     "Status (overall = worst tree):\n"
     "- healthy: nothing wrong today, nothing new.\n"
-    "- watch: minor or ambiguous problem (slight curl, a few yellowing leaves, 1-2 new fallen leaves).\n"
+    "- watch: minor or ambiguous problem (slight curl, a few yellowing leaves, "
+    "1-2 new fallen leaves).\n"
     "- alert: clear problem (several new fallen leaves, obvious wilting, widespread yellowing or "
     "browning), or a minor one clearly worsening.\n\n"
     "Summary: one short line per tree: condition today; change (better, same, worse, none). "
@@ -176,7 +187,9 @@ ANALYSIS_RESPONSE_SCHEMA: dict[str, Any] = {
     "properties": {
         "summary": {
             "type": "STRING",
-            "description": "One short line per tree: condition today, then change since earlier photos.",
+            "description": (
+                "One short line per tree: condition today, then change since earlier photos."
+            ),
         },
         "leaf_drop": {
             "type": "BOOLEAN",
@@ -208,22 +221,17 @@ def get_system_instruction(config: Config) -> str:
 
 def build_analysis_request(
     config: Config,
-    arg2: Any,
-    arg3: Any,
-    arg4: Any = None,
+    today_photo: Path | str,
+    today_date: date | str,
 ) -> list[dict[str, Any]]:
-    """Build the Gemini generateContent parts list for the daily comparison.
-
-    Accepts either (config, today_path, today_date) or (config, store, today_path, today_date).
-    """
-    if isinstance(arg2, (Path, str)):
-        today_path = Path(arg2)
-        today_date = arg3 if isinstance(arg3, date) else datetime.strptime(str(arg3), "%Y-%m-%d").date()
+    """Build the Gemini generateContent parts list for the daily comparison."""
+    today_path = Path(today_photo)
+    if isinstance(today_date, str):
+        parsed_date = datetime.strptime(today_date, "%Y-%m-%d").date()
     else:
-        today_path = Path(arg3)
-        today_date = arg4 if isinstance(arg4, date) else datetime.strptime(str(arg4), "%Y-%m-%d").date()
+        parsed_date = today_date
 
-    frames = select_analysis_frames(config.captures_dir, today_path, today_date)
+    frames = select_analysis_frames(config.captures_dir, today_path, parsed_date)
 
     parts: list[dict[str, Any]] = []
     has_t7 = False
@@ -254,7 +262,7 @@ def build_analysis_request(
 
     parts.append({
         "text": (
-            f"Today is {today_date}. Reference photos: {baseline_info}\n"
+            f"Today is {parsed_date}. Reference photos: {baseline_info}\n"
             "Report each tree: current condition first, then change since the earlier photos."
         )
     })
@@ -268,28 +276,40 @@ class PermanentAIError(Exception):
 def check_frame_brightness(image_bytes: bytes, min_mean_brightness: float = 15.0) -> bool:
     """Check if the frame is sufficiently illuminated for visual analysis.
 
-    Returns False if an image frame (larger than 10x10) is too dark/black.
+    Returns False if an image frame is empty, corrupted/unreadable, or too dark.
+    Returns True if valid and bright (or if OpenCV is not installed).
     """
     try:
         import cv2
         import numpy as np
+    except ImportError:
+        return True
+
+    try:
+        if not image_bytes:
+            logger.warning("Frame is empty (0 bytes)")
+            return False
 
         nparr = np.frombuffer(image_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
-        if img is not None:
-            h, w = img.shape[:2]
-            if h > 10 and w > 10:
-                mean_val = float(np.mean(img))
-                if mean_val < min_mean_brightness:
-                    logger.warning(
-                        "Frame too dark for AI analysis (mean brightness: %.1f < %.1f)",
-                        mean_val,
-                        min_mean_brightness,
-                    )
-                    return False
+        if img is None:
+            logger.warning("Frame could not be decoded (corrupt or invalid image format)")
+            return False
+
+        h, w = img.shape[:2]
+        if h > 10 and w > 10:
+            mean_val = float(np.mean(img))
+            if mean_val < min_mean_brightness:
+                logger.warning(
+                    "Frame too dark for AI analysis (mean brightness: %.1f < %.1f)",
+                    mean_val,
+                    min_mean_brightness,
+                )
+                return False
         return True
     except Exception:
-        return True
+        logger.exception("Error decoding image for brightness check")
+        return False
 
 
 def call_gemini_api(
@@ -404,6 +424,7 @@ def run_daily_analysis(
     config: Config,
     store: Store,
     today_photo: Path | str,
+    now: datetime | None = None,
 ) -> dict[str, Any] | None:
     """Run daily AI comparison across timelapse frames.
 
@@ -421,10 +442,11 @@ def run_daily_analysis(
             logger.warning("Today's photo not found: %s", today_photo)
             return None
 
+        curr_now = now or datetime.now()
         try:
             today_date = datetime.strptime(today_path.stem, "%Y-%m-%d").date()
         except ValueError:
-            today_date = datetime.now().date()
+            today_date = curr_now.date()
         today_str = today_date.strftime("%Y-%m-%d")
 
         photo_bytes = today_path.read_bytes()
@@ -433,8 +455,8 @@ def run_daily_analysis(
                 "status": "watch",
                 "leaf_drop": False,
                 "summary": (
-                    "Photo too dark for canopy health analysis "
-                    "(check tent lighting or capture schedule)."
+                    "Photo too dark or invalid for canopy health analysis "
+                    "(check camera, tent lighting, or capture schedule)."
                 ),
             }
             store.save_daily_report(
