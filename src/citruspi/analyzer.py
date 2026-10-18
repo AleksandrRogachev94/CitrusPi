@@ -156,38 +156,43 @@ def strip_code_fences(text: str) -> str:
 ANALYSIS_SYSTEM_INSTRUCTION = (
     "You monitor potted citrus trees in a grow tent from a fixed camera. Each request has "
     "today's photo (the subject) and, when available, photos from about 1 and 7 days ago, "
-    "each labelled with its date. Judge each tree's condition today, using the earlier photos "
-    "to see what changed. Report only what is visible; do not guess causes.\n\n"
+    "each labelled with its date. Assess the visible canopy today and use earlier photos "
+    "to identify changes. Report visible evidence, not diagnoses or treatment advice.\n\n"
     "Plant layout:\n<<PLANT_LAYOUT>>\n\n"
-    "For each tree assess:\n"
+    "Assess the visible canopy:\n"
     "- Condition today: drooping or wilting, leaf curl, yellowing or browning, "
     "spotting, thin branches.\n"
     "- Change since the earlier photos: newly fallen leaves (floor, pot) and anything "
     "new, better or worse. The 1-day photo shows sudden events, the 7-day photo slow trends.\n"
-    "A problem that was already there and is still there is ongoing, not 'no change'.\n\n"
+    "Describe a persistent problem as ongoing; do not imply it is healthy or worsening.\n\n"
     "Rules:\n"
     "- Judge structure directly. Describe visible colour cautiously (grow lights tint colour); "
-    "claim colour changes only relative to the same tree in the other photos.\n"
-    "- Ignore camera shift, glare, condensation, exposure, moved objects and new growth.\n"
-    "- If you can't tell a real change from an artefact, or the view is too poor to judge, "
-    "use 'watch' and say so.\n"
+    "claim colour changes only relative to the same visible area under comparable lighting.\n"
+    "- Do not mistake camera shift, glare, condensation, exposure or moved plants for health "
+    "changes. Report clearly supported growth or recovery; pale new growth alone is not damage.\n"
+    "- Do not count trees or assign overlapping leaves to individual trees. Do not assume "
+    "hidden foliage is healthy. Mention visibility limits when they affect assessment.\n"
+    "- If a comparison is uncertain, say so. If the view prevents judging condition, use "
+    "'watch' unless a clear visible concern already warrants 'alert'.\n"
+    "- Avoid exact fallen-leaf counts unless unmistakable; leaf_drop requires clear evidence "
+    "of newly fallen or missing leaves compared with an earlier photo.\n"
     "- If only today's photo is provided, describe current condition only. Changes cannot be "
     "assessed: leave each change field empty and set leaf_drop to false. "
     "Visible fallen leaves alone do not establish new leaf drop.\n\n"
-    "Status (overall = worst tree):\n"
-    "- healthy: nothing wrong today, nothing new.\n"
-    "- watch: minor or ambiguous problem (slight curl, a few yellowing leaves, "
-    "1-2 new fallen leaves).\n"
-    "- alert: clear problem (several new fallen leaves, obvious wilting, widespread yellowing or "
-    "browning), or a minor one clearly worsening.\n\n"
+    "Status reflects the strongest visible concern today, not just whether it changed:\n"
+    "- healthy: no visible concerns; continue monitoring.\n"
+    "- watch: minor or uncertain concern; check again.\n"
+    "- alert: clear concern warranting inspection (obvious wilting, widespread yellowing or "
+    "browning, substantial new leaf drop, or a minor problem clearly worsening), "
+    "even if it is ongoing or this is the first photo.\n\n"
     "Output plain text in the JSON fields, without Markdown.\n"
     "- summary: one short headline (at most 15 words) highlighting the main concern, "
     "or that no visible concerns were found. Do not repeat the tree details.\n"
-    "- trees: one entry per distinguishable tree, in camera order from left to right. "
-    "Use configured names when supplied; otherwise short camera-relative positions "
-    "such as 'Far left', 'Front center', 'Back center', 'Right'. Do not invent identities "
-    "or split overlapping foliage into trees you cannot distinguish.\n"
-    "- observation: at most 20 words describing that tree's visible condition today. "
+    "- trees: concise findings by visible area, not one entry per tree. Combine repeated "
+    "observations and omit filler. Use short position labels such as 'Right side', "
+    "'Front canopy' or 'Overall'; use a configured tree name only when clearly identifiable. "
+    "Include one 'Visibility' entry if overlap, clipping or lighting limits conclusions.\n"
+    "- observation: at most 20 words describing the finding today. "
     "Use ordinary language, such as 'yellowing' rather than 'chlorotic'.\n"
     "- change: at most 15 words describing a supported change or an ongoing issue "
     "relative to the dated photos. Leave empty when there are no reference photos. "
@@ -205,13 +210,17 @@ ANALYSIS_RESPONSE_SCHEMA: dict[str, Any] = {
                 "One headline, at most 15 words, highlighting the main concern."
             ),
         },
+        # Preserve the existing key/storage shape; entries now describe findings by area.
         "trees": {
             "type": "ARRAY",
-            "description": "One concise entry per distinguishable tree, left to right.",
+            "description": "Visible findings by area and relevant visibility limits.",
             "items": {
                 "type": "OBJECT",
                 "properties": {
-                    "position": {"type": "STRING", "description": "Name or camera position."},
+                    "position": {
+                        "type": "STRING",
+                        "description": "Visible area, Overall, Visibility, or identifiable tree.",
+                    },
                     "observation": {
                         "type": "STRING",
                         "description": "Visible condition today, at most 20 words.",
@@ -228,14 +237,14 @@ ANALYSIS_RESPONSE_SCHEMA: dict[str, Any] = {
         "leaf_drop": {
             "type": "BOOLEAN",
             "description": (
-                "Leaves newly fallen or missing since an earlier photo. "
-                "Leaves already on the floor earlier don't count. False if no earlier photo."
+                "Clear evidence of newly fallen or missing leaves since an earlier photo. "
+                "Existing fallen leaves don't count. False without references or if uncertain."
             ),
         },
         "status": {
             "type": "STRING",
             "enum": ["healthy", "watch", "alert"],
-            "description": "Overall status: the worst status among the trees.",
+            "description": "Strongest visible concern today, including ongoing concerns.",
         },
     },
     "required": ["summary", "trees", "leaf_drop", "status"],
@@ -248,7 +257,7 @@ def get_system_instruction(config: Config) -> str:
     layout = (
         config.plant_layout.strip()
         if config.plant_layout.strip()
-        else "Not specified (evaluate visible trees from left to right)."
+        else "Not specified (describe visible findings by camera-relative area)."
     )
     return ANALYSIS_SYSTEM_INSTRUCTION.replace("<<PLANT_LAYOUT>>", layout)
 
@@ -300,7 +309,7 @@ def build_analysis_request(
     parts.append({
         "text": (
             f"Today is {parsed_date}. Reference photos: {baseline_info}\n"
-            "Return a short headline and structured tree observations. "
+            "Return a short headline and concise findings by visible area. "
             "Only describe changes supported by the reference photos."
         )
     })

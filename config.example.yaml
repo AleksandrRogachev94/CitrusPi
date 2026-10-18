@@ -60,6 +60,6 @@ alert_debounce_count: 3
 ai_enabled: false
 ai_api_key: ""
 ai_model: "gemini-3.8-flash"
-# Must match the camera framing
-plant_layout: "Left to right: Kishu A, Kishu B, Meyer, Sumo"
+# Optional names/positions matching the camera view; leave empty for findings by visible area.
+plant_layout: ""
 

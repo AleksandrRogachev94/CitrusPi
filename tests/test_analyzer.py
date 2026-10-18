@@ -523,8 +523,11 @@ def test_structured_report_roundtrip_and_baseline_handling(
     raw = json.dumps({
         "status": "watch", "leaf_drop": True, "summary": "Yellowing on right tree.",
         "trees": [{
-            "position": " Right ", "observation": " Sparse canopy. ",
+            "position": " Right side ", "observation": " Sparse canopy. ",
             "change": " More fallen leaves than on 2026-10-12. ",
+        }, {
+            "position": "Visibility", "observation": "Overlapping foliage hides tree boundaries.",
+            "change": "",
         }],
     })
     with patch("citruspi.analyzer.call_gemini_api", return_value=raw) as call:
@@ -533,8 +536,11 @@ def test_structured_report_roundtrip_and_baseline_handling(
     assert result["reference_dates"] == reference_days
     assert result["leaf_drop"] is bool(reference_days)
     assert result["trees"] == [{
-        "position": "Right", "observation": "Sparse canopy.",
+        "position": "Right side", "observation": "Sparse canopy.",
         "change": "More fallen leaves than on 2026-10-12." if reference_days else "",
+    }, {
+        "position": "Visibility", "observation": "Overlapping foliage hides tree boundaries.",
+        "change": "",
     }]
     saved = store.latest_report()
     assert saved is not None
@@ -607,7 +613,7 @@ def test_empty_layout_uses_camera_positions(test_config: Config, layout: str) ->
 
     test_config.plant_layout = layout
     instruction = get_system_instruction(test_config)
-    assert "Not specified (evaluate visible trees from left to right)." in instruction
+    assert "Not specified (describe visible findings by camera-relative area)." in instruction
     assert "claim no change" not in instruction
 
 
