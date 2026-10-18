@@ -1,0 +1,29 @@
+{% macro report_body(report) -%}
+<div class="ai-report-body">
+    <p class="ai-report-summary">{{ report.summary }}</p>
+    {% if report.reference_dates is not none %}
+    <p class="ai-report-context">
+        {% if report.reference_dates %}
+        Compared with photos from {{ report.reference_dates|join(' and ') }}.
+        {% else %}
+        First photo · Changes cannot be assessed yet.
+        {% endif %}
+    </p>
+    {% endif %}
+    {% if report.trees %}
+    <dl class="ai-tree-list">
+        {% for tree in report.trees %}
+        <div class="ai-tree-row">
+            <dt>{{ tree.position }}</dt>
+            <dd>
+                <p>{{ tree.observation }}</p>
+                {% if tree.change and report.reference_dates %}
+                <p class="ai-tree-change">{{ tree.change }}</p>
+                {% endif %}
+            </dd>
+        </div>
+        {% endfor %}
+    </dl>
+    {% endif %}
+</div>
+{%- endmacro %}

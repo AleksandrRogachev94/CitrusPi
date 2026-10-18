@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_ai_report.html" import report_body %}
 {% block title_extra %} — Timelapse Gallery{% endblock %}
 {% block content %}
 
@@ -82,7 +83,7 @@
                         <span class="ai-badge badge-{{ r.status }}">{{ r.status|upper }}</span>
                     </div>
                 </div>
-                <p class="health-log-summary">{{ r.summary }}</p>
+                {{ report_body(r) }}
             </div>
         </div>
         {% endfor %}

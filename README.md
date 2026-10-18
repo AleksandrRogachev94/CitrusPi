@@ -112,6 +112,13 @@ The camera fullscreen button works with both live view and daily photos. It uses
 fullscreen when available and expands inside the page otherwise; Escape exits.
 Temperature cards show the last 24 hours' minimum and maximum from stored readings.
 
+AI health reports show a short headline and labeled observations for each visible tree.
+Analysis compares today's photo with available photos from about 1 and 7 days earlier;
+the report lists the actual reference dates. The first photo establishes a baseline,
+so it cannot establish changes or new leaf drop. Previous AI reports are not used as
+evidence. An empty `plant_layout` uses camera-relative positions instead of tree names.
+Older saved reports continue to display as plain text.
+
 When ntfy notifications are configured, a daily photo still missing 30 minutes after
 its scheduled time triggers one warning for that date. Capture retries continue;
 failed notification deliveries are retried on subsequent scheduler checks. Late-night

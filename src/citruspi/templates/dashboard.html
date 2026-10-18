@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_ai_report.html" import report_body %}
 {% block head %}
 <script src="/static/charts.js?v={{ static_version('charts.js') }}"></script>
 {% endblock %}
@@ -73,7 +74,7 @@
                     </span>
                 </div>
             </div>
-            <div class="ai-report-summary">{{ latest_report.summary }}</div>
+            {{ report_body(latest_report) }}
             <div class="ai-report-footer">
                 <a href="/gallery?view=log" class="ai-history-link">View complete plant health history →</a>
             </div>

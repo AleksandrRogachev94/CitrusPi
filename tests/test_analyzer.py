@@ -269,6 +269,7 @@ def test_api_key_sent_as_header_and_absent_from_url(
         assert gen_config["responseMimeType"] == "application/json"
         assert gen_config["responseSchema"]["propertyOrdering"] == [
             "summary",
+            "trees",
             "leaf_drop",
             "status",
         ]
@@ -282,6 +283,7 @@ def test_fenced_json_response_parsed_and_saved(
     test_config: Config, store: Store
 ) -> None:
     today_photo = _make_dummy_photo(test_config.captures_dir / "2026-10-13.jpg")
+    _make_dummy_photo(test_config.captures_dir / "2026-10-12.jpg")
 
     fenced_content = """```json
 {
@@ -492,6 +494,61 @@ def test_parse_analysis_response() -> None:
     assert parse_analysis_response(unknown_status) is None
 
 
+@pytest.mark.parametrize("trees", [
+    None,
+    "Right: yellowing",
+    ["Right"],
+    [{"position": "Right", "observation": "Yellowing"}],
+    [{"position": " ", "observation": "Yellowing", "change": ""}],
+    [{"position": "Right", "observation": 42, "change": ""}],
+])
+def test_invalid_structured_tree_observations_rejected(trees: object) -> None:
+    from citruspi.analyzer import parse_analysis_response
+
+    raw = json.dumps({
+        "status": "watch", "leaf_drop": False, "summary": "Yellowing on right tree.",
+        "trees": trees,
+    })
+    assert parse_analysis_response(raw) is None
+
+
+@pytest.mark.parametrize("reference_days", [[], ["2026-10-06", "2026-10-12"]])
+def test_structured_report_roundtrip_and_baseline_handling(
+    test_config: Config, store: Store, reference_days: list[str],
+) -> None:
+    today = _make_dummy_photo(test_config.captures_dir / "2026-10-13.jpg")
+    for day in reference_days:
+        _make_dummy_photo(test_config.captures_dir / f"{day}.jpg")
+    # Include an unsupported change in the baseline response to check app enforcement.
+    raw = json.dumps({
+        "status": "watch", "leaf_drop": True, "summary": "Yellowing on right tree.",
+        "trees": [{
+            "position": " Right ", "observation": " Sparse canopy. ",
+            "change": " More fallen leaves than on 2026-10-12. ",
+        }],
+    })
+    with patch("citruspi.analyzer.call_gemini_api", return_value=raw) as call:
+        result = run_daily_analysis(test_config, store, today)
+    assert result is not None
+    assert result["reference_dates"] == reference_days
+    assert result["leaf_drop"] is bool(reference_days)
+    assert result["trees"] == [{
+        "position": "Right", "observation": "Sparse canopy.",
+        "change": "More fallen leaves than on 2026-10-12." if reference_days else "",
+    }]
+    saved = store.latest_report()
+    assert saved is not None
+    assert saved["trees"] == result["trees"]
+    assert saved["reference_dates"] == reference_days
+    # Metadata must reflect the same photos actually supplied to the model.
+    parts = call.call_args.args[2]
+    labels = [part["text"] for part in parts if part.get("text", "").startswith("Photo ")]
+    assert labels == [
+        f"Photo {day} ({(date(2026, 10, 13) - date.fromisoformat(day)).days}d ago):"
+        for day in reference_days
+    ] + ["Photo 2026-10-13 (today):"]
+
+
 def test_call_gemini_api_ignores_thought_parts() -> None:
     from citruspi.analyzer import call_gemini_api
 
@@ -542,6 +599,16 @@ def test_get_system_instruction_formats_layout(test_config: Config) -> None:
     instruction = get_system_instruction(test_config)
     assert test_config.plant_layout in instruction
     assert "<<PLANT_LAYOUT>>" not in instruction
+
+
+@pytest.mark.parametrize("layout", ["", "   "])
+def test_empty_layout_uses_camera_positions(test_config: Config, layout: str) -> None:
+    from citruspi.analyzer import get_system_instruction
+
+    test_config.plant_layout = layout
+    instruction = get_system_instruction(test_config)
+    assert "Not specified (evaluate visible trees from left to right)." in instruction
+    assert "claim no change" not in instruction
 
 
 def test_build_analysis_request_signature_and_structure(test_config: Config) -> None:

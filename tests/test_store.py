@@ -2,9 +2,10 @@
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 from citruspi.models import Reading
-from citruspi.store import Store
+from citruspi.store import MIGRATIONS, Store
 
 
 def test_migrations_applied(tmp_path: Path) -> None:
@@ -15,6 +16,37 @@ def test_migrations_applied(tmp_path: Path) -> None:
     assert migrations[1]["version"] == 2
     assert migrations[2]["version"] == 3
     assert migrations[3]["version"] == 4
+
+
+def test_structured_report_migration_preserves_existing_reports(tmp_path: Path) -> None:
+    with patch("citruspi.store.MIGRATIONS", MIGRATIONS[:4]):
+        old_store = Store(tmp_path)
+        with old_store._get_conn() as conn:
+            conn.execute(
+                "INSERT INTO daily_reports (date, created_at, status, summary, leaf_drop) "
+                "VALUES (?, ?, ?, ?, ?)",
+                ("2026-10-12", "2026-10-12T22:00:00Z", "watch", "Old report.", 0),
+            )
+    store = Store(tmp_path)
+    report = store.latest_report()
+    assert report is not None
+    assert report["summary"] == "Old report."
+    assert report["trees"] == []
+    assert report["reference_dates"] is None
+    trees = [{"position": "Right", "observation": "Sparse canopy.", "change": "Ongoing."}]
+    store.save_daily_report(
+        "2026-10-12", "watch", "Updated report.", trees=trees,
+        reference_dates=["2026-10-11"],
+    )
+    for updated in (store.latest_report(), store.daily_reports()[0],
+                    store.reports_by_date()["2026-10-12"]):
+        assert updated is not None
+        assert updated["trees"] == trees
+        assert updated["reference_dates"] == ["2026-10-11"]
+    store.save_daily_report(
+        "2026-10-12", "watch", "Baseline.", trees=trees, reference_dates=[],
+    )
+    assert store.daily_reports()[0]["reference_dates"] == []
 
 
 def test_insert_and_latest(tmp_path: Path) -> None:

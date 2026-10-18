@@ -169,6 +169,41 @@ def test_api_reports(tmp_path: Path) -> None:
     assert data[0]["leaf_drop"] == 1
 
 
+@pytest.mark.parametrize("reference_dates", [[], ["2026-10-06", "2026-10-12"]])
+def test_structured_report_display_and_escaping(
+    tmp_path: Path, reference_dates: list[str],
+) -> None:
+    cfg = Config(mock_sensors=True, data_dir=tmp_path / "data", captures_dir=tmp_path / "captures")
+    store = Store(cfg.data_dir)
+    trees = [{
+        "position": "Right <tree>",
+        "observation": "Sparse canopy with yellowing leaves. <script>alert(1)</script>",
+        "change": "Yellowing persists since 2026-10-06.",
+    }]
+    store.save_daily_report(
+        "2026-10-13", "alert", "Right tree needs attention.", trees=trees,
+        reference_dates=reference_dates,
+    )
+    tc = TestClient(create_app(cfg, store, SensorHub(cfg)))
+    for url in ("/", "/gallery"):
+        html = tc.get(url).text
+        assert "Right tree needs attention." in html
+        assert '<dl class="ai-tree-list">' in html
+        assert "Right &lt;tree&gt;" in html
+        assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+        assert "<script>alert(1)</script>" not in html
+        if reference_dates:
+            assert "Compared with photos from 2026-10-06 and 2026-10-12." in html
+            assert "Yellowing persists since 2026-10-06." in html
+            assert "First photo" not in html
+        else:
+            assert html.count("First photo · Changes cannot be assessed yet.") == 1
+            assert "Yellowing persists" not in html
+    report = tc.get("/api/reports").json()[0]
+    assert report["trees"] == trees
+    assert report["reference_dates"] == reference_dates
+
+
 def test_cache_busting_version_in_html(tmp_path: Path) -> None:
     cfg = Config(mock_sensors=True, data_dir=tmp_path / "data")
     store = Store(cfg.data_dir)

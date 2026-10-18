@@ -166,20 +166,34 @@ ANALYSIS_SYSTEM_INSTRUCTION = (
     "new, better or worse. The 1-day photo shows sudden events, the 7-day photo slow trends.\n"
     "A problem that was already there and is still there is ongoing, not 'no change'.\n\n"
     "Rules:\n"
-    "- Judge structure directly. Judge colour only relative to the same tree in the other photos "
-    "(grow lights tint colour).\n"
+    "- Judge structure directly. Describe visible colour cautiously (grow lights tint colour); "
+    "claim colour changes only relative to the same tree in the other photos.\n"
     "- Ignore camera shift, glare, condensation, exposure, moved objects and new growth.\n"
     "- If you can't tell a real change from an artefact, or the view is too poor to judge, "
     "use 'watch' and say so.\n"
-    "- If only today's photo is provided, describe condition and claim no change.\n\n"
+    "- If only today's photo is provided, describe current condition only. Changes cannot be "
+    "assessed: leave each change field empty and set leaf_drop to false. "
+    "Visible fallen leaves alone do not establish new leaf drop.\n\n"
     "Status (overall = worst tree):\n"
     "- healthy: nothing wrong today, nothing new.\n"
     "- watch: minor or ambiguous problem (slight curl, a few yellowing leaves, "
     "1-2 new fallen leaves).\n"
     "- alert: clear problem (several new fallen leaves, obvious wilting, widespread yellowing or "
     "browning), or a minor one clearly worsening.\n\n"
-    "Summary: one short line per tree: condition today; change (better, same, worse, none). "
-    "Write 'No visible change.' only for a healthy, unchanged tree."
+    "Output plain text in the JSON fields, without Markdown.\n"
+    "- summary: one short headline (at most 15 words) highlighting the main concern, "
+    "or that no visible concerns were found. Do not repeat the tree details.\n"
+    "- trees: one entry per distinguishable tree, in camera order from left to right. "
+    "Use configured names when supplied; otherwise short camera-relative positions "
+    "such as 'Far left', 'Front center', 'Back center', 'Right'. Do not invent identities "
+    "or split overlapping foliage into trees you cannot distinguish.\n"
+    "- observation: at most 20 words describing that tree's visible condition today. "
+    "Use ordinary language, such as 'yellowing' rather than 'chlorotic'.\n"
+    "- change: at most 15 words describing a supported change or an ongoing issue "
+    "relative to the dated photos. Leave empty when there are no reference photos. "
+    "If a comparison is obscured or uncertain, say so.\n"
+    "Do not repeat baseline disclaimers in the headline or observations; the app shows "
+    "which reference photos are available."
 )
 
 ANALYSIS_RESPONSE_SCHEMA: dict[str, Any] = {
@@ -188,8 +202,28 @@ ANALYSIS_RESPONSE_SCHEMA: dict[str, Any] = {
         "summary": {
             "type": "STRING",
             "description": (
-                "One short line per tree: condition today, then change since earlier photos."
+                "One headline, at most 15 words, highlighting the main concern."
             ),
+        },
+        "trees": {
+            "type": "ARRAY",
+            "description": "One concise entry per distinguishable tree, left to right.",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "position": {"type": "STRING", "description": "Name or camera position."},
+                    "observation": {
+                        "type": "STRING",
+                        "description": "Visible condition today, at most 20 words.",
+                    },
+                    "change": {
+                        "type": "STRING",
+                        "description": "Photo-supported comparison, or empty without references.",
+                    },
+                },
+                "required": ["position", "observation", "change"],
+                "propertyOrdering": ["position", "observation", "change"],
+            },
         },
         "leaf_drop": {
             "type": "BOOLEAN",
@@ -204,8 +238,8 @@ ANALYSIS_RESPONSE_SCHEMA: dict[str, Any] = {
             "description": "Overall status: the worst status among the trees.",
         },
     },
-    "required": ["summary", "leaf_drop", "status"],
-    "propertyOrdering": ["summary", "leaf_drop", "status"],
+    "required": ["summary", "trees", "leaf_drop", "status"],
+    "propertyOrdering": ["summary", "trees", "leaf_drop", "status"],
 }
 
 
@@ -213,7 +247,7 @@ def get_system_instruction(config: Config) -> str:
     """Format the system instruction with the configured plant layout."""
     layout = (
         config.plant_layout.strip()
-        if config.plant_layout
+        if config.plant_layout.strip()
         else "Not specified (evaluate visible trees from left to right)."
     )
     return ANALYSIS_SYSTEM_INSTRUCTION.replace("<<PLANT_LAYOUT>>", layout)
@@ -223,6 +257,8 @@ def build_analysis_request(
     config: Config,
     today_photo: Path | str,
     today_date: date | str,
+    *,
+    frames: list[tuple[date, Path, int]] | None = None,
 ) -> list[dict[str, Any]]:
     """Build the Gemini generateContent parts list for the daily comparison."""
     today_path = Path(today_photo)
@@ -231,7 +267,8 @@ def build_analysis_request(
     else:
         parsed_date = today_date
 
-    frames = select_analysis_frames(config.captures_dir, today_path, parsed_date)
+    if frames is None:
+        frames = select_analysis_frames(config.captures_dir, today_path, parsed_date)
 
     parts: list[dict[str, Any]] = []
     has_t7 = False
@@ -263,7 +300,8 @@ def build_analysis_request(
     parts.append({
         "text": (
             f"Today is {parsed_date}. Reference photos: {baseline_info}\n"
-            "Report each tree: current condition first, then change since the earlier photos."
+            "Return a short headline and structured tree observations. "
+            "Only describe changes supported by the reference photos."
         )
     })
     return parts
@@ -413,11 +451,32 @@ def parse_analysis_response(raw_text: str) -> dict[str, Any] | None:
         logger.warning("Missing or empty summary in AI response")
         return None
 
-    return {
+    verdict: dict[str, Any] = {
         "status": status,
         "leaf_drop": leaf_drop,
         "summary": summary.strip(),
     }
+    # Accept older responses too; new API requests require structured tree entries.
+    if "trees" in parsed:
+        trees = parsed["trees"]
+        if not isinstance(trees, list):
+            logger.warning("Non-list trees in AI response")
+            return None
+        cleaned_trees = []
+        for tree in trees:
+            if not isinstance(tree, dict) or any(
+                not isinstance(tree.get(key), str)
+                for key in ("position", "observation", "change")
+            ):
+                logger.warning("Invalid tree entry in AI response")
+                return None
+            cleaned = {key: tree[key].strip() for key in ("position", "observation", "change")}
+            if not cleaned["position"] or not cleaned["observation"]:
+                logger.warning("Empty tree position or observation in AI response")
+                return None
+            cleaned_trees.append(cleaned)
+        verdict["trees"] = cleaned_trees
+    return verdict
 
 
 def run_daily_analysis(
@@ -472,7 +531,9 @@ def run_daily_analysis(
                 "summary": str(dark_verdict["summary"]),
             }
 
-        parts = build_analysis_request(config, today_path, today_date)
+        frames = select_analysis_frames(config.captures_dir, today_path, today_date)
+        reference_dates = [frame_date.isoformat() for frame_date, _, delta in frames if delta < 0]
+        parts = build_analysis_request(config, today_path, today_date, frames=frames)
         system_instruction = get_system_instruction(config)
         raw_text = call_gemini_api(
             config.ai_model,
@@ -487,11 +548,19 @@ def run_daily_analysis(
         if not verdict:
             return None
 
+        trees = verdict.get("trees", [])
+        if not reference_dates:
+            verdict["leaf_drop"] = False
+            for tree in trees:
+                tree["change"] = ""
+
         store.save_daily_report(
             today_str,
             str(verdict["status"]),
             str(verdict["summary"]),
             bool(verdict["leaf_drop"]),
+            trees=trees,
+            reference_dates=reference_dates,
         )
 
         return {
@@ -499,6 +568,8 @@ def run_daily_analysis(
             "status": verdict["status"],
             "leaf_drop": verdict["leaf_drop"],
             "summary": verdict["summary"],
+            "trees": trees,
+            "reference_dates": reference_dates,
         }
     except PermanentAIError:
         raise

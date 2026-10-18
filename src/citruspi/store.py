@@ -8,6 +8,7 @@ Database management:
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 import threading
@@ -74,6 +75,14 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
                 leaf_drop   INTEGER NOT NULL DEFAULT 0
             );
             """,
+        ],
+    ),
+    (
+        5,
+        "add_structured_tree_observations",
+        [
+            "ALTER TABLE daily_reports ADD COLUMN trees TEXT NOT NULL DEFAULT '[]';",
+            "ALTER TABLE daily_reports ADD COLUMN reference_dates TEXT;",
         ],
     ),
 ]
@@ -317,6 +326,9 @@ class Store:
         status: str,
         summary: str,
         leaf_drop: bool | int = 0,
+        *,
+        trees: list[dict[str, str]] | None = None,
+        reference_dates: list[str] | None = None,
     ) -> None:
         """Save or update daily AI analysis report (upsert)."""
         conn = self._get_conn()
@@ -325,16 +337,32 @@ class Store:
         with conn:
             conn.execute(
                 """
-                INSERT INTO daily_reports (date, created_at, status, summary, leaf_drop)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO daily_reports
+                    (date, created_at, status, summary, leaf_drop, trees, reference_dates)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(date) DO UPDATE SET
                     created_at = excluded.created_at,
                     status = excluded.status,
                     summary = excluded.summary,
-                    leaf_drop = excluded.leaf_drop;
+                    leaf_drop = excluded.leaf_drop,
+                    trees = excluded.trees,
+                    reference_dates = excluded.reference_dates;
                 """,
-                (date_str, now_utc, status, summary, leaf_drop_int),
+                (
+                    date_str, now_utc, status, summary, leaf_drop_int,
+                    json.dumps(trees or []),
+                    json.dumps(reference_dates) if reference_dates is not None else None,
+                ),
             )
+
+    @staticmethod
+    def _decode_report(row: sqlite3.Row) -> dict[str, Any]:
+        report = dict(row)
+        report["trees"] = json.loads(report["trees"])
+        # NULL means legacy/unanalyzed; [] means an analyzed photo without references.
+        if report["reference_dates"] is not None:
+            report["reference_dates"] = json.loads(report["reference_dates"])
+        return report
 
     def latest_report(self) -> dict[str, Any] | None:
         """Return the most recent daily AI analysis report."""
@@ -342,7 +370,7 @@ class Store:
         row = conn.execute(
             "SELECT * FROM daily_reports ORDER BY date DESC LIMIT 1;"
         ).fetchone()
-        return dict(row) if row else None
+        return self._decode_report(row) if row else None
 
     def daily_reports(self, limit: int = 100) -> list[dict[str, Any]]:
         """Return daily AI analysis reports ordered by date DESC."""
@@ -351,7 +379,7 @@ class Store:
             "SELECT * FROM daily_reports ORDER BY date DESC LIMIT ?;",
             (limit,),
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [self._decode_report(r) for r in rows]
 
     def reports_by_date(self, limit: int = 365) -> dict[str, dict[str, Any]]:
         """Return mapping of date_str -> report dict for fast lookups."""
