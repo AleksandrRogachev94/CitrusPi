@@ -171,7 +171,7 @@ ANALYSIS_SYSTEM_INSTRUCTION = (
     "- Do not mistake camera shift, glare, condensation, exposure or moved plants for health "
     "changes. Report clearly supported growth or recovery; pale new growth alone is not damage.\n"
     "- Do not count trees or assign overlapping leaves to individual trees. Do not assume "
-    "hidden foliage is healthy. Mention visibility limits when they affect assessment.\n"
+    "hidden foliage is healthy.\n"
     "- If a comparison is uncertain, say so. If the view prevents judging condition, use "
     "'watch' unless a clear visible concern already warrants 'alert'.\n"
     "- Avoid exact fallen-leaf counts unless unmistakable; leaf_drop requires clear evidence "
@@ -186,12 +186,12 @@ ANALYSIS_SYSTEM_INSTRUCTION = (
     "browning, substantial new leaf drop, or a minor problem clearly worsening), "
     "even if it is ongoing or this is the first photo.\n\n"
     "Output plain text in the JSON fields, without Markdown.\n"
-    "- summary: one short headline (at most 15 words) highlighting the main concern, "
-    "or that no visible concerns were found. Do not repeat the tree details.\n"
-    "- trees: concise findings by visible area, not one entry per tree. Combine repeated "
-    "observations and omit filler. Use short position labels such as 'Right side', "
-    "'Front canopy' or 'Overall'; use a configured tree name only when clearly identifiable. "
-    "Include one 'Visibility' entry if overlap, clipping or lighting limits conclusions.\n"
+    "- summary: one short headline (at most 15 words) highlighting the main concern "
+    "or that no visible concerns were found.\n"
+    "- trees: only notable findings tied to physical areas, not one entry per tree or area. "
+    "Omit repetitive descriptions of healthy foliage; use an empty list if there are no findings. "
+    "Position must be a physical location such as 'Right side' or 'Rear center', or a configured "
+    "tree name when clearly identifiable.\n"
     "- observation: at most 20 words describing the finding today. "
     "Use ordinary language, such as 'yellowing' rather than 'chlorotic'.\n"
     "- change: at most 15 words describing a supported change or an ongoing issue "
@@ -206,20 +206,18 @@ ANALYSIS_RESPONSE_SCHEMA: dict[str, Any] = {
     "properties": {
         "summary": {
             "type": "STRING",
-            "description": (
-                "One headline, at most 15 words, highlighting the main concern."
-            ),
+            "description": "Main concern or no visible concerns, at most 15 words.",
         },
         # Preserve the existing key/storage shape; entries now describe findings by area.
         "trees": {
             "type": "ARRAY",
-            "description": "Visible findings by area and relevant visibility limits.",
+            "description": "Notable plant findings tied to physical locations; empty if none.",
             "items": {
                 "type": "OBJECT",
                 "properties": {
                     "position": {
                         "type": "STRING",
-                        "description": "Visible area, Overall, Visibility, or identifiable tree.",
+                        "description": "Physical area or identifiable tree; never a report topic.",
                     },
                     "observation": {
                         "type": "STRING",

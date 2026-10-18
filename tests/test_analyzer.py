@@ -521,13 +521,11 @@ def test_structured_report_roundtrip_and_baseline_handling(
         _make_dummy_photo(test_config.captures_dir / f"{day}.jpg")
     # Include an unsupported change in the baseline response to check app enforcement.
     raw = json.dumps({
-        "status": "watch", "leaf_drop": True, "summary": "Yellowing on right tree.",
+        "status": "watch", "leaf_drop": True,
+        "summary": "Yellowing on the right.",
         "trees": [{
             "position": " Right side ", "observation": " Sparse canopy. ",
             "change": " More fallen leaves than on 2026-10-12. ",
-        }, {
-            "position": "Visibility", "observation": "Overlapping foliage hides tree boundaries.",
-            "change": "",
         }],
     })
     with patch("citruspi.analyzer.call_gemini_api", return_value=raw) as call:
@@ -538,13 +536,11 @@ def test_structured_report_roundtrip_and_baseline_handling(
     assert result["trees"] == [{
         "position": "Right side", "observation": "Sparse canopy.",
         "change": "More fallen leaves than on 2026-10-12." if reference_days else "",
-    }, {
-        "position": "Visibility", "observation": "Overlapping foliage hides tree boundaries.",
-        "change": "",
     }]
     saved = store.latest_report()
     assert saved is not None
     assert saved["trees"] == result["trees"]
+    assert saved["summary"] == result["summary"]
     assert saved["reference_dates"] == reference_days
     # Metadata must reflect the same photos actually supplied to the model.
     parts = call.call_args.args[2]

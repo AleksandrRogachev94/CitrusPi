@@ -112,9 +112,9 @@ The camera fullscreen button works with both live view and daily photos. It uses
 fullscreen when available and expands inside the page otherwise; Escape exits.
 Temperature cards show the last 24 hours' minimum and maximum from stored readings.
 
-AI health reports show a short headline and concise findings by visible area, with
-visibility limits when foliage overlaps or the view is incomplete. Reports do not count
-trees or assume hidden foliage is healthy. Status reflects current visible concerns:
+AI health reports show a short summary and notable findings by physical location.
+Reports describe visible foliage without counting trees or assessing hidden leaves.
+Status reflects current visible concerns:
 healthy means continue monitoring, watch means check again, and alert means inspect.
 Analysis compares today's photo with available photos from about 1 and 7 days earlier;
 the report lists the actual reference dates. The first photo establishes a baseline,
