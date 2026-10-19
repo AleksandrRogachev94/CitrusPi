@@ -275,6 +275,49 @@ class Store:
                 sampled.append(bucket[index])
         return sampled
 
+    def power_activity(
+        self, plug_id: str, hours: int, max_gap_sec: int, now: datetime | None = None,
+    ) -> list[dict[str, Any]]:
+        """Merge observed states from raw readings, independently of chart downsampling.
+
+        Like runtime estimates, an interval uses the preceding state and requires
+        known endpoints. Do not bridge outages or extend past the last observation.
+        """
+        end = now or datetime.now(UTC)
+        start = end - timedelta(hours=hours)
+        rows = self._get_conn().execute(
+            """SELECT timestamp, active FROM power_readings
+               WHERE plug_id = ? AND timestamp >= ? AND timestamp <= ?
+               ORDER BY timestamp, id""",
+            (plug_id, (start - timedelta(seconds=max_gap_sec)).strftime('%Y-%m-%dT%H:%M:%SZ'),
+             end.strftime('%Y-%m-%dT%H:%M:%SZ')),
+        )
+        intervals: list[dict[str, Any]] = []
+        previous = None
+        for row in rows:
+            timestamp = datetime.fromisoformat(row["timestamp"].replace("Z", "+00:00"))
+            if previous is not None:
+                prev_time, state = previous
+                gap = (timestamp - prev_time).total_seconds()
+                if (0 < gap <= max_gap_sec and state is not None and row["active"] is not None
+                        and timestamp > start):
+                    left = max(start, prev_time).strftime('%Y-%m-%dT%H:%M:%SZ')
+                    right = timestamp.strftime('%Y-%m-%dT%H:%M:%SZ')
+                    if intervals and intervals[-1]["end"] == left and (
+                        intervals[-1]["active"] == bool(state)
+                    ):
+                        intervals[-1]["end"] = right
+                    else:
+                        intervals.append({"start": left, "end": right, "active": bool(state)})
+            previous = timestamp, row["active"]
+        return intervals
+
+    def first_power_timestamp(self, plug_id: str) -> str | None:
+        row = self._get_conn().execute(
+            "SELECT MIN(timestamp) FROM power_readings WHERE plug_id = ?", (plug_id,),
+        ).fetchone()
+        return row[0] if row else None
+
     def power_summary(
         self, plug_id: str, poll_interval: int, now: datetime | None = None,
     ) -> dict[str, Any]:

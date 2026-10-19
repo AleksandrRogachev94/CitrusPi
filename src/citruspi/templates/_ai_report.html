@@ -1,6 +1,6 @@
-{% macro report_body(report) -%}
+{% macro report_body(report, show_summary=true) -%}
 <div class="ai-report-body">
-    <p class="ai-report-summary">{{ report.summary }}</p>
+    {% if show_summary %}<p class="ai-report-summary">{{ report.summary }}</p>{% endif %}
     {% if report.reference_dates is not none %}
     <p class="ai-report-context">
         {% if report.reference_dates %}

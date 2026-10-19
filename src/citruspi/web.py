@@ -150,6 +150,10 @@ def create_app(
         return [{
             "id": plug.id, "name": plug.name, "role": plug.role,
             "max_gap_sec": config.plug_poll_interval_sec * 2,
+            "activity": store.power_activity(
+                plug.id, safe_hours, config.plug_poll_interval_sec * 2,
+            ),
+            "recorded_since": store.first_power_timestamp(plug.id),
             "readings": store.power_history(
                 plug.id, safe_hours, max_gap_sec=config.plug_poll_interval_sec * 2,
             ),

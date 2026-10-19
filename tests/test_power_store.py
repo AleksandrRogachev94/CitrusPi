@@ -105,3 +105,55 @@ def test_migration_is_repeatable_and_preserves_sensor_history(tmp_path):
     assert reopened.latest()["temp_c"] == 20
     assert reopened.latest_power("heater")["power_w"] == 100
     assert [m["version"] for m in reopened.get_applied_migrations()] == list(range(1, 7))
+
+
+def test_power_activity_intervals_merging_and_outages(tmp_path):
+    store = Store(tmp_path)
+    now = datetime(2026, 10, 19, 12, 0, tzinfo=UTC)
+
+    # Plug with no readings returns empty activity and None timestamp
+    assert store.power_activity("heater", hours=24, max_gap_sec=120, now=now) == []
+    assert store.first_power_timestamp("heater") is None
+
+    # T0 to T2 active, T3 to T4 idle, gap to T10 (outage), T10 to T11 active
+    t0 = now - timedelta(minutes=60)
+    t1 = now - timedelta(minutes=58)
+    t2 = now - timedelta(minutes=56)
+    t3 = now - timedelta(minutes=54)
+    t4 = now - timedelta(minutes=52)
+    t10 = now - timedelta(minutes=10)
+    t11 = now - timedelta(minutes=8)
+
+    insert(store, t0, 100, active=True)
+    insert(store, t1, 100, active=True)
+    insert(store, t2, 100, active=True)
+    insert(store, t3, 0, active=False)
+    insert(store, t4, 0, active=False)
+    insert(store, t10, 100, active=True)
+    insert(store, t11, 100, active=True)
+
+    assert store.first_power_timestamp("heater") == t0.strftime('%Y-%m-%dT%H:%M:%SZ')
+
+    # max_gap_sec = 180s (3 minutes)
+    intervals = store.power_activity("heater", hours=2, max_gap_sec=180, now=now)
+    # Merged active interval t0 to t2
+    # Transition to idle t2 to t4
+    # Outage gap between t4 and t10 is excluded
+    # Active interval t10 to t11
+    assert len(intervals) == 3
+    assert intervals[0] == {
+        "start": t0.strftime('%Y-%m-%dT%H:%M:%SZ'),
+        "end": t3.strftime('%Y-%m-%dT%H:%M:%SZ'),
+        "active": True,
+    }
+    assert intervals[1] == {
+        "start": t3.strftime('%Y-%m-%dT%H:%M:%SZ'),
+        "end": t4.strftime('%Y-%m-%dT%H:%M:%SZ'),
+        "active": False,
+    }
+    assert intervals[2] == {
+        "start": t10.strftime('%Y-%m-%dT%H:%M:%SZ'),
+        "end": t11.strftime('%Y-%m-%dT%H:%M:%SZ'),
+        "active": True,
+    }
+

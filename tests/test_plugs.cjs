@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const test = require('node:test');
 const vm = require('node:vm');
 
-function harness() {
+function harness(extraNodes = []) {
     function element() {
         return {
             children: [], dataset: {}, textContent: '', className: '',
@@ -14,7 +14,7 @@ function harness() {
             getContext() { return {}; },
         };
     }
-    const nodes = Object.fromEntries(['plug-cards', 'power-chart-status', 'powerChart'].map(id => [id, element()]));
+    const nodes = Object.fromEntries(['plug-cards', 'power-chart-status', 'powerChart', ...extraNodes].map(id => [id, element()]));
     const intervals = {};
     const charts = [];
     let respond = async url => url === '/api/plugs' ? [plug()] : url.startsWith('/api/plugs/history') ? [{
@@ -140,4 +140,24 @@ test('chart failures clear the old chart and show a recoverable error', async ()
     await h.context.window.loadPowerChart(24);
     assert.equal(old.destroyed, true);
     assert.match(h.nodes['power-chart-status'].textContent, /unavailable/);
+});
+
+test('activityChart renders temperature datasets and activity tracks plugin', async () => {
+    const h = harness(['activityChart', 'activity-chart-status', 'activity-history-note']);
+    h.respond(url => url.startsWith('/api/plugs/history') ? [{
+        name: 'Grow light', role: 'light', activity: [
+            { start: '2026-10-19T00:00:00Z', end: '2026-10-19T00:10:00Z', active: true },
+        ],
+        recorded_since: '2026-10-19T00:00:00Z', readings: [],
+    }] : url === '/api/plugs' ? [plug()] : [{
+        timestamp: '2026-10-19T00:00:00Z', temp_f: 68, root_temp_f: 65,
+    }]);
+    await flush();
+    await h.context.window.loadPowerChart(24);
+    const activityChart = h.charts.find(c => c.config.plugins?.some(p => p.id === 'activityTracksPlugin'));
+    assert.ok(activityChart);
+    assert.equal(activityChart.config.data.datasets[0].label, 'Canopy °F');
+    assert.equal(activityChart.config.data.datasets[1].label, 'Root °F');
+    assert.equal(activityChart.config.data.datasets[0].data[0].y, 68);
+    assert.equal(activityChart.config.data.datasets[1].data[0].y, 65);
 });

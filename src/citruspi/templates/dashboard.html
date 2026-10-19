@@ -77,22 +77,26 @@
                     </span>
                 </div>
             </div>
-            {{ report_body(latest_report) }}
-            <div class="ai-report-footer">
-                <a href="/gallery?view=log" class="ai-history-link">View complete plant health history →</a>
-            </div>
+            <p class="ai-report-summary">{{ latest_report.summary }}</p>
+            <details class="ai-report-details">
+                <summary>Findings and comparison</summary>
+                {{ report_body(latest_report, show_summary=false) }}
+                <div class="ai-report-footer">
+                    <a href="/gallery?view=log" class="ai-history-link">View complete plant health history →</a>
+                </div>
+            </details>
         </div>
         {% endif %}
     </section>
 
-    <!-- Column 2: Telemetry Charts (Synchronized Dual Visualizations) -->
+    <!-- Column 2: Telemetry & Equipment History -->
     <div class="charts-column">
-        <p id="chart-status" class="muted small" role="status">Loading charts…</p>
-        <!-- Climate & VPD Chart -->
-        <section class="card chart-card">
-            <div class="card-header-compact">
-                <h2>📈 Canopy Microclimate</h2>
+        <!-- Thermal & Equipment History -->
+        <section class="card chart-card timeline-card">
+            <div class="card-header-compact history-header">
+                <h2>{% if config.plugs %}Temperature &amp; Equipment{% else %}🌡️ Thermal Balance{% endif %}</h2>
                 <div class="range-selector" role="group" aria-label="Chart time range">
+                    <button type="button" class="range-btn" data-hours="1" onclick="setChartRange(1)">1h</button>
                     <button type="button" class="range-btn active" data-hours="24" onclick="setChartRange(24)">24h</button>
                     <button type="button" class="range-btn" data-hours="72" onclick="setChartRange(72)">3d</button>
                     <button type="button" class="range-btn" data-hours="168" onclick="setChartRange(168)">7d</button>
@@ -100,23 +104,36 @@
                     <button type="button" class="range-btn" data-hours="720" onclick="setChartRange(720)">30d</button>
                 </div>
             </div>
-            <div class="chart-wrapper">
-                <canvas id="climateChart"></canvas>
+            {% if config.plugs %}
+            <div class="timeline-wrapper">
+                <p id="activity-chart-status" class="chart-empty-overlay muted small timeline-status" role="status" hidden></p>
+                <canvas id="activityChart" role="img" aria-label="Temperature history with equipment active and idle periods"></canvas>
             </div>
-        </section>
-
-        <!-- Thermal Balance (Canopy vs. Root Zone) Chart -->
-        <section class="card chart-card">
-            <div class="card-header-compact">
-                <h2>🌡️ Thermal Balance (Canopy vs. Root Zone)</h2>
-                <span id="thermal-range-badge" class="range-badge">24h History</span>
+            <div class="activity-key small muted">
+                <span><i class="activity-swatch active"></i>Active</span>
+                <span><i class="activity-swatch idle"></i>Idle</span>
+                <span><i class="activity-swatch unknown"></i>No history / gap</span>
             </div>
+            <p id="activity-history-note" class="muted small history-note"></p>
+            {% else %}
             <div class="chart-wrapper-compact">
                 <canvas id="thermalChart"></canvas>
             </div>
+            {% endif %}
+        </section>
+
+        <!-- Canopy Microclimate (Temp, Humidity, VPD) -->
+        <section class="card chart-card">
+            <div class="card-header-compact">
+                <h2>📈 Canopy Microclimate</h2>
+                <span class="muted small">Temp · Humidity · VPD</span>
+            </div>
+            <div class="chart-wrapper">
+                <p id="chart-status" class="chart-empty-overlay muted small" role="status" hidden></p>
+                <canvas id="climateChart"></canvas>
+            </div>
         </section>
     </div>
-
 </div>
 
 {% if config.plugs %}
@@ -128,10 +145,12 @@
     <div id="plug-cards" class="plug-cards" aria-live="polite">
         <p class="muted small">Loading equipment…</p>
     </div>
-    <p class="muted small">Runtime and energy estimates cover observed portions of the last 24 hours. Gaps are excluded.</p>
-    <p id="power-chart-status" class="muted small" role="status">Loading power history…</p>
-    <div class="chart-wrapper"><canvas id="powerChart" aria-label="Equipment power and tent temperatures over time" role="img"></canvas></div>
-    <p class="muted small">Power and temperature history follows the time range selected above. Activity is inferred from watts.</p>
+    <details id="power-details" class="power-details">
+        <summary>⚡ Power &amp; Energy Details (Watts History)</summary>
+        <p class="muted small">24h estimates cover recorded periods only; gaps are excluded. Today uses each plug’s daily counter.</p>
+        <p id="power-chart-status" class="muted small" role="status"></p>
+        <div class="chart-wrapper"><canvas id="powerChart" role="img" aria-label="Equipment power history in watts"></canvas></div>
+    </details>
 </section>
 {% endif %}
 
@@ -285,7 +304,7 @@ window.addEventListener('pagehide', () => {
 let climateChartInstance = null;
 let thermalChartInstance = null;
 const savedRange = Number(localStorage.getItem('citruspi-chart-range'));
-let currentRangeHours = [24, 72, 168, 336, 720].includes(savedRange) ? savedRange : 24;
+let currentRangeHours = [1, 24, 72, 168, 336, 720].includes(savedRange) ? savedRange : 24;
 let chartRequestId = 0;
 
 function clearCharts(message) {
@@ -315,7 +334,7 @@ function updateRangeUI(hours) {
     });
     const badge = document.getElementById('thermal-range-badge');
     if (badge) {
-        const labels = { 24: '24h', 72: '3d', 168: '7d', 336: '14d', 720: '30d' };
+        const labels = { 1: '1h', 24: '24h', 72: '3d', 168: '7d', 336: '14d', 720: '30d' };
         badge.textContent = `${labels[hours] || hours + 'h'} History`;
     }
 }
@@ -329,7 +348,8 @@ function setChartRange(hours) {
 
 async function loadCharts(hours = currentRangeHours) {
     const requestId = ++chartRequestId;
-    window.loadPowerChart?.(hours);
+    const bounds = { start: Date.now() - hours * 3600000, end: Date.now() };
+    window.loadPowerChart?.(hours, bounds);
     let data;
     try {
         const res = await fetch(`/api/history?hours=${hours}`);
@@ -354,14 +374,17 @@ async function loadCharts(hours = currentRangeHours) {
     const hasMeasurements = data.some(r =>
         [r.temp_f, r.root_temp_f, r.humidity, r.vpd_kpa].some(Number.isFinite));
     const status = document.getElementById('chart-status');
-    status.hidden = hasMeasurements;
-    status.textContent = hasMeasurements ? '' : 'No sensor measurements available for this period.';
+    if (status) {
+        status.hidden = hasMeasurements;
+        status.textContent = hasMeasurements ? '' : 'No sensor measurements available for this period.';
+    }
 
     const theme = getThemeColors();
-    const now = Date.now();
-    const minTime = now - (hours * 3600 * 1000);
+    const now = bounds.end;
+    const minTime = bounds.start;
 
     const timeConfig = {
+        unit: hours <= 1 ? 'minute' : hours > 24 ? 'day' : 'hour',
         displayFormats: {
             minute: 'h:mm a',
             hour: 'ha',

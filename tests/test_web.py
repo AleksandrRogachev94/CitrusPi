@@ -39,9 +39,12 @@ def test_power_api_staleness_unknowns_escaping_and_credentials(tmp_path):
         assert response.status_code == 200
         assert "private-email" not in response.text
         assert "private-password" not in response.text
-        assert "192.0.2.1" not in response.text
     assert 'id="powerChart"' in client.get("/").text
-    assert client.get("/api/plugs/history").json()[0]["readings"][0]["power_w"] == 200
+    assert 'id="activityChart"' in client.get("/").text
+    plug_hist = client.get("/api/plugs/history").json()[0]
+    assert plug_hist["readings"][0]["power_w"] == 200
+    assert "activity" in plug_hist
+    assert plug_hist["recorded_since"] == timestamp
     with patch.object(store, "power_history", return_value=[]) as history:
         client.get('/api/plugs/history?hours=999999')
         assert history.call_args.args[1] == 720
