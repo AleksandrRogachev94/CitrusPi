@@ -125,7 +125,10 @@ Missing power resets activity to unknown. Failures and stale readings never coun
 The main history view aligns heater/light activity lanes with canopy/root temperature
 over a shared 1h–30d range. Colored segments mean active, gray means observed idle,
 and gaps mean unknown. A single observation is shown as a marker, not an invented
-duration. Activity remains visible without temperature readings. AI findings stay
+duration. Select or focus a period to see its start, end and estimated duration.
+Lane totals follow the selected range; expandable active-period lists show the latest
+20 observed periods per device. Gaps are excluded and boundary periods are clipped
+to the selected range. Activity remains visible without temperature readings. AI findings stay
 collapsed beneath their summary. Equipment cards show current state, watts and the
 plug's daily energy counter; expandable details contain watts history and usage estimates.
 Readings persist in SQLite alongside existing sensor history. Rolling 24h runtime,

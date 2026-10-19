@@ -115,6 +115,12 @@
                 <span><i class="activity-swatch idle"></i>Idle</span>
                 <span><i class="activity-swatch unknown"></i>No history / gap</span>
             </div>
+            <p id="activity-selection" class="activity-selection muted small" role="status" aria-live="polite">Select a period for timing and duration.</p>
+            <details class="activity-details">
+                <summary>Observed active periods</summary>
+                <div id="activity-periods" class="activity-periods"></div>
+                <p class="muted small">Durations are estimates within the selected range; gaps are excluded.</p>
+            </details>
             <p id="activity-history-note" class="muted small history-note"></p>
             {% else %}
             <div class="chart-wrapper-compact">
@@ -149,7 +155,7 @@
     <details id="power-details" class="power-details">
         <summary>Power &amp; energy details</summary>
         <div id="plug-details" class="plug-cards"></div>
-        <p class="muted small">24h estimates cover recorded periods only; gaps are excluded. Today uses each plug’s daily counter.</p>
+        <p class="muted small">24h estimates exclude gaps. Today is the plug’s daily total.</p>
         <p id="power-chart-status" class="muted small" role="status"></p>
         <div class="chart-wrapper"><canvas id="powerChart" role="img" aria-label="Equipment power history in watts"></canvas></div>
     </details>

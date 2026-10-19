@@ -44,7 +44,7 @@ function harness() {
     }
     const nodes = Object.fromEntries(['plug-cards', 'plug-details', 'power-details',
         'power-chart-status', 'powerChart', 'activityChart', 'activity-chart-status',
-        'activity-history-note', 'equipment-lanes'].map(id => [id, element()]));
+        'activity-history-note', 'activity-selection', 'activity-periods', 'equipment-lanes'].map(id => [id, element()]));
     const intervals = {};
     const charts = [];
     let respond = async url => url === '/api/plugs' ? [plug()] : url.startsWith('/api/plugs/history') ? [series()] : [];
@@ -76,14 +76,14 @@ test('compact cards distinguish enabled relay from idle; usage details are separ
     const h = harness();
     await flush();
     const card = h.nodes['plug-cards'].children[0];
-    assert.equal(card.children[0].textContent, 'Heater <script>alert(1)</script>');
+    assert.equal(card.querySelector('.plug-name').textContent, 'Heater <script>alert(1)</script>');
     assert.equal(card.querySelector('.plug-state').textContent, 'Idle');
-    assert.equal(card.querySelector('.plug-watts').textContent, '0.0 W');
-    assert.equal(card.children.length, 4);
-    assert.equal(card.children[3].textContent, 'Today: 0.500 kWh');
+    assert.equal(card.querySelector('.plug-watts').textContent, '0 W');
+    assert.equal(card.children.length, 3);
+    assert.equal(card.children[2].textContent, 'Today: 0.500 kWh');
     const usage = h.nodes['plug-details'].children[0];
-    assert.ok(usage.children.some(c => c.textContent.includes('50.0% coverage')));
-    assert.ok(usage.children.some(c => c.textContent.includes('plug enabled')));
+    assert.ok(usage.children.some(c => c.textContent.includes('50% data coverage')));
+    assert.ok(usage.children.some(c => c.textContent.includes('outlet enabled')));
 });
 
 test('stale readings lose live state without waiting for another API response', async () => {
@@ -131,6 +131,8 @@ test('power chart renders only when opened and excludes duplicate temperature ax
     assert.equal(chart.data.datasets[0].data[1].y, null);
     assert.equal(chart.data.datasets[0].spanGaps, false);
     assert.equal(chart.data.datasets[0].stepped, true);
+    assert.equal(chart.data.datasets[0].pointRadius, 0);
+    assert.equal(chart.data.datasets[0].pointHoverRadius, 4);
     assert.equal(chart.data.datasets.length, 1);
     assert.equal(chart.options.scales.y.title.text, 'Watts');
     await h.context.window.loadPowerChart(72);
@@ -141,14 +143,14 @@ test('activity is visible without sensors and has no misleading current-state ba
     const h = harness();
     await flush();
     const lane = h.nodes['equipment-lanes'].children[0];
-    assert.equal(lane.children[0].textContent, 'Grow light');
+    assert.equal(lane.querySelector('.equipment-lane-title').textContent, 'Grow light');
     const segments = lane.children[1].children;
-    assert.equal(segments.length, 3); // Active interval, idle interval, last observation.
+    assert.equal(segments.length, 2); // Active and idle intervals; no duplicate marker.
     assert.equal(segments[0].className, 'lane-segment active');
     assert.equal(segments[1].className, 'lane-segment idle');
     assert.match(segments[0].title, /Active/);
     assert.equal(h.nodes['activity-chart-status'].hidden, true);
-    assert.match(h.nodes['activity-history-note'].textContent, /History starts/);
+    assert.match(h.nodes['activity-history-note'].textContent, /Recorded since/);
     assert.equal(h.charts[0].config.data.datasets[0].data.length, 0);
 });
 
@@ -237,5 +239,72 @@ test('failed history requests clear old chart and lanes', async () => {
     await h.context.window.loadPowerChart(24);
     assert.equal(old.destroyed, true);
     assert.equal(h.nodes['equipment-lanes'].children.length, 0);
+    assert.equal(h.nodes['activity-periods'].children.length, 0);
+    assert.equal(h.nodes['activity-selection'].textContent, '');
     assert.match(h.nodes['activity-chart-status'].textContent, /unavailable/);
+});
+
+test('period buttons reveal duration on click or keyboard focus without sensors', async () => {
+    const h = harness();
+    await flush();
+    const lane = h.nodes['equipment-lanes'].children[0];
+    const active = lane.children[1].children[0];
+    assert.equal(active.type, 'button');
+    assert.match(lane.children[0].children[1].textContent, /~1 min active in view/);
+    active.events.click();
+    assert.match(h.nodes['activity-selection'].textContent, /Grow light · Active · .* · ~1 min/);
+    const idle = lane.children[1].children[1];
+    idle.events.focus();
+    assert.match(h.nodes['activity-selection'].textContent, /Idle · .* · ~1 min/);
+});
+
+test('active period list excludes idle time and caps long histories at the latest 20', async () => {
+    const h = harness();
+    await flush();
+    const group = h.nodes['activity-periods'].children[0];
+    assert.equal(group.children[1].children.length, 1);
+    assert.equal(group.children[1].children[0].children[1].textContent, '~1 min');
+    h.respond(async () => [{ ...series(), activity: Array.from({ length: 25 }, (_, i) => ({
+        start: iso((25 - i) * 120), end: iso((25 - i) * 120 - 60), active: true,
+    })) }]);
+    await h.context.window.loadPowerChart(24);
+    const recent = h.nodes['activity-periods'].children[0];
+    assert.equal(recent.children[1].children.length, 20);
+    assert.match(recent.children[2].textContent, /Latest 20 of 25/);
+});
+
+test('usage formats hours as readable minutes and missing values stay unknown', async () => {
+    const h = harness();
+    await flush();
+    h.respond(async () => [plug({ summary: { runtime_hours: 1.38, estimated_kwh: 0.843, coverage_pct: 64 } })]);
+    await h.intervals[30000]();
+    const usage = h.nodes['plug-details'].children[0];
+    assert.equal(usage.children[1].textContent, '24h · ~1 h 23 min active · ~0.843 kWh');
+    assert.equal(usage.children[2].textContent, '64% data coverage');
+    h.respond(async () => [plug({ summary: { runtime_hours: null, estimated_kwh: null, coverage_pct: 0 } })]);
+    await h.intervals[30000]();
+    assert.equal(h.nodes['plug-details'].children[0].children[1].textContent, '24h · — active · —');
+});
+
+test('a single observation does not claim a run duration', async () => {
+    const h = harness();
+    await flush();
+    h.respond(async () => [{ ...series(), activity: [], readings: [{ timestamp: iso(30), active: true }] }]);
+    await h.context.window.loadPowerChart(1);
+    const lane = h.nodes['equipment-lanes'].children[0];
+    assert.equal(lane.children[0].children[1].textContent, 'No observed duration');
+    lane.children[1].children[0].events.click();
+    assert.match(h.nodes['activity-selection'].textContent, /single reading/);
+    assert.match(h.nodes['activity-periods'].children[0].children[2].textContent, /No activity readings/);
+});
+
+test('inspected durations respect the selected window and retain subminute precision', async () => {
+    const h = harness();
+    await flush();
+    h.respond(async () => [{ ...series(), readings: [], activity: [{ start: iso(100), end: iso(80), active: true }] }]);
+    await h.context.window.loadPowerChart(1, { start: now - 90000, end: now });
+    const lane = h.nodes['equipment-lanes'].children[0];
+    assert.equal(lane.children[0].children[1].textContent, '<1 min active in view');
+    lane.children[1].children[0].events.focus();
+    assert.match(h.nodes['activity-selection'].textContent, /<1 min/);
 });
