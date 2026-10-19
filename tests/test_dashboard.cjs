@@ -26,7 +26,7 @@ function page(name, { status = 'Telemetry Feed', timestamp, storedView = 'grid',
         };
     }
     for (const id of ['climateChart', 'thermalChart', 'chart-status', 'live-readings',
-        'telemetry-live-dot', 'telemetry-status-label', 'thermal-range-badge',
+        'telemetry-live-dot', 'telemetry-status-label',
         'gallery-grid-view', 'gallery-log-view', 'timelapse-btn', 'camera-display',
         'camera-empty', 'stream-live-pill', 'stream-loading', 'camera-caption',
         'toggle-stream-btn', 'camera-stage', 'camera-fullscreen-btn']) element(id);
@@ -257,14 +257,14 @@ test('an older range response cannot replace the latest range', async () => {
     assert.match(p.nodes['chart-status'].textContent, /No readings/);
 });
 
-test('all-null history explains why charts have no measurements', async () => {
+test('missing sensors do not add a redundant layout-shifting notice', async () => {
     const p = page('dashboard.html');
     p.fetch(async () => ({ ok: true, json: async () => [{
         timestamp: reading.timestamp, temp_f: null, root_temp_f: null, humidity: null, vpd_kpa: null,
     }] }));
     await p.run('loadCharts(24)');
-    assert.equal(p.nodes['chart-status'].hidden, false);
-    assert.match(p.nodes['chart-status'].textContent, /No sensor measurements/);
+    assert.equal(p.nodes['chart-status'].hidden, true);
+    assert.equal(p.nodes['chart-status'].textContent, '');
 });
 
 test('fresh timestamps do not turn missing sensors green', () => {

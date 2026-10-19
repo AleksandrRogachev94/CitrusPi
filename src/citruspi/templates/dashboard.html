@@ -109,8 +109,9 @@
                 <p id="activity-chart-status" class="chart-empty-overlay muted small timeline-status" role="status" hidden></p>
                 <canvas id="activityChart" role="img" aria-label="Temperature history with equipment active and idle periods"></canvas>
             </div>
+            <div id="equipment-lanes" class="equipment-lanes" aria-label="Equipment activity timeline"></div>
             <div class="activity-key small muted">
-                <span><i class="activity-swatch active"></i>Active</span>
+                <span><i class="activity-swatch active"></i>Colored = active</span>
                 <span><i class="activity-swatch idle"></i>Idle</span>
                 <span><i class="activity-swatch unknown"></i>No history / gap</span>
             </div>
@@ -146,7 +147,8 @@
         <p class="muted small">Loading equipment…</p>
     </div>
     <details id="power-details" class="power-details">
-        <summary>⚡ Power &amp; Energy Details (Watts History)</summary>
+        <summary>Power &amp; energy details</summary>
+        <div id="plug-details" class="plug-cards"></div>
         <p class="muted small">24h estimates cover recorded periods only; gaps are excluded. Today uses each plug’s daily counter.</p>
         <p id="power-chart-status" class="muted small" role="status"></p>
         <div class="chart-wrapper"><canvas id="powerChart" role="img" aria-label="Equipment power history in watts"></canvas></div>
@@ -332,11 +334,6 @@ function updateRangeUI(hours) {
         const btnHours = parseInt(btn.getAttribute('data-hours'), 10);
         btn.classList.toggle('active', btnHours === hours);
     });
-    const badge = document.getElementById('thermal-range-badge');
-    if (badge) {
-        const labels = { 1: '1h', 24: '24h', 72: '3d', 168: '7d', 336: '14d', 720: '30d' };
-        badge.textContent = `${labels[hours] || hours + 'h'} History`;
-    }
 }
 
 function setChartRange(hours) {
@@ -371,12 +368,10 @@ async function loadCharts(hours = currentRangeHours) {
         clearCharts('Chart assets could not be loaded. Check your connection and refresh.');
         return;
     }
-    const hasMeasurements = data.some(r =>
-        [r.temp_f, r.root_temp_f, r.humidity, r.vpd_kpa].some(Number.isFinite));
     const status = document.getElementById('chart-status');
     if (status) {
-        status.hidden = hasMeasurements;
-        status.textContent = hasMeasurements ? '' : 'No sensor measurements available for this period.';
+        status.hidden = true;
+        status.textContent = '';
     }
 
     const theme = getThemeColors();

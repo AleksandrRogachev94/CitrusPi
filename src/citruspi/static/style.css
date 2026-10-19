@@ -575,7 +575,7 @@ button:active { transform: scale(0.98); }
 
 .chart-wrapper {
     position: relative;
-    height: 220px;
+    height: 165px;
     width: 100%;
     max-width: 100%;
     min-width: 0;
@@ -583,7 +583,7 @@ button:active { transform: scale(0.98); }
 
 .timeline-wrapper {
     position: relative;
-    height: 220px;
+    height: 145px;
     width: 100%;
     max-width: 100%;
     min-width: 0;
@@ -614,7 +614,7 @@ button:active { transform: scale(0.98); }
 
 .chart-wrapper-compact {
     position: relative;
-    height: 155px;
+    height: 145px;
     width: 100%;
     max-width: 100%;
     min-width: 0;
@@ -1174,70 +1174,38 @@ canvas {
         width: 100%;
     }
 }
-/* Optional equipment monitoring & Activity Timeline */
+/* Equipment history and compact current readings */
 .equipment-section { margin-top: 1.25rem; padding: 1rem 1.25rem; }
-.plug-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin: 0.75rem 0; }
-.plug-card {
-    background: var(--surface-sub);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 1.15rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-    transition: border-color 0.15s ease;
+.plug-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+    gap: 1rem;
+    margin: 0.75rem 0;
 }
-.plug-card:hover { border-color: rgba(245, 158, 11, 0.35); }
-.plug-card p { margin: 0.25rem 0; }
-.plug-name { font-size: 1.05rem; font-weight: 700; color: var(--text); }
-.plug-state { font-size: 0.85rem; font-weight: 600; color: var(--text-muted); }
-.plug-watts { font-size: 1.85rem; font-weight: 700; color: var(--text); letter-spacing: -0.02em; }
-.plug-relay { font-size: 0.75rem; }
-
-.power-details {
-    margin-top: 1rem;
-    border-top: 1px solid var(--border);
-    padding-top: 0.75rem;
+.plug-card { background: var(--surface-sub); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; }
+.plug-card p, .plug-usage p { margin: 0.3rem 0; }
+.plug-name { font-weight: 600; }
+.plug-state { color: var(--text-muted); font-size: 0.85rem; }
+.plug-watts { font-size: 1.6rem; font-weight: 700; }
+.power-details { margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 0.75rem; }
+.power-details summary { cursor: pointer; color: var(--text-muted); font-size: 0.85rem; }
+.equipment-lanes { display: grid; gap: 0.5rem; margin-top: 0.5rem; }
+.equipment-lane-title { margin: 0 0 0.2rem; font-size: 0.75rem; font-weight: 600; color: var(--equipment-color); }
+.equipment-lane-track {
+    position: relative;
+    height: 12px;
+    border: 1px dashed var(--border);
+    border-radius: 3px;
+    overflow: hidden;
 }
-.power-details summary {
-    font-size: 0.82rem;
-    font-weight: 600;
-    color: var(--text-muted);
-    cursor: pointer;
-    user-select: none;
-    padding: 0.3rem 0;
-    transition: color 0.15s ease;
-}
-.power-details summary:hover { color: var(--orange); }
-
-.activity-key {
-    display: flex;
-    align-items: center;
-    gap: 1.25rem;
-    margin-top: 0.5rem;
-    font-size: 0.72rem;
-    color: var(--text-muted);
-    flex-wrap: wrap;
-}
-.activity-key span {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-}
-.activity-swatch {
-    display: inline-block;
-    width: 12px;
-    height: 8px;
-    border-radius: 2px;
-}
-.activity-swatch.active { background: var(--orange); }
-.activity-swatch.idle { background: #334155; border: 1px solid rgba(255, 255, 255, 0.1); }
-.activity-swatch.unknown { background: transparent; border: 1px dashed var(--text-muted); }
-
-.history-note {
-    margin-top: 0.4rem;
-    font-size: 0.72rem;
-    color: var(--text-muted);
-    line-height: 1.4;
-    min-height: 1.2em;
-}
+.lane-segment, .lane-marker { position: absolute; top: 0; bottom: 0; }
+.lane-segment.active, .lane-marker.active { background: var(--equipment-color); }
+.lane-segment.idle, .lane-marker.idle { background: var(--text-muted); opacity: 0.45; }
+.lane-marker { width: 3px; transform: translateX(-50%); }
+.activity-key { display: flex; flex-wrap: wrap; gap: 0.8rem; margin-top: 0.6rem; font-size: 0.7rem; }
+.activity-key span { display: inline-flex; align-items: center; gap: 0.3rem; }
+.activity-swatch { display: inline-block; width: 12px; height: 8px; border-radius: 2px; }
+.activity-swatch.active { background: #a78bfa; }
+.activity-swatch.idle { background: var(--text-muted); opacity: 0.45; }
+.activity-swatch.unknown { border: 1px dashed var(--text-muted); }
+.history-note { margin-top: 0.4rem; font-size: 0.7rem; line-height: 1.4; }

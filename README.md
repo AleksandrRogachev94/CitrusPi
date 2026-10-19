@@ -122,7 +122,12 @@ loads. Initial activity is detected immediately outside the threshold band; subs
 changes require two consecutive observations, with hysteresis between the thresholds.
 Missing power resets activity to unknown. Failures and stale readings never count as off.
 
-The power chart shares the selected 24h–30d range and overlays canopy/root temperature.
+The main history view aligns heater/light activity lanes with canopy/root temperature
+over a shared 1h–30d range. Colored segments mean active, gray means observed idle,
+and gaps mean unknown. A single observation is shown as a marker, not an invented
+duration. Activity remains visible without temperature readings. AI findings stay
+collapsed beneath their summary. Equipment cards show current state, watts and the
+plug's daily energy counter; expandable details contain watts history and usage estimates.
 Readings persist in SQLite alongside existing sensor history. Rolling 24h runtime,
 duty cycle and energy are estimates from raw observations; intervals with missing
 endpoints or gaps longer than twice the polling period are excluded. Coverage makes
