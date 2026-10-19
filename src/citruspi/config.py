@@ -14,6 +14,33 @@ import yaml
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
+@dataclass(frozen=True)
+class PlugConfig:
+    """Stable equipment identity and local connection settings."""
+
+    id: str
+    name: str
+    host: str
+    role: str = "other"
+    active_watts: float = 5.0
+    idle_watts: float = 2.0
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.id, str) or not re.fullmatch(r"[a-z0-9_-]+", self.id):
+            raise ValueError("Plug id must use lowercase letters, numbers, underscores or hyphens")
+        for key in ("name", "host"):
+            value = getattr(self, key)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"Plug {key} must be a nonempty string")
+        if self.role not in ("heater", "light", "other"):
+            raise ValueError("Plug role must be heater, light or other")
+        for value in (self.idle_watts, self.active_watts):
+            if type(value) not in (int, float) or not math.isfinite(value):
+                raise ValueError("Plug power thresholds must be finite numbers")
+        if not 0 <= self.idle_watts < self.active_watts:
+            raise ValueError("Plug thresholds must satisfy 0 <= idle_watts < active_watts")
+
+
 @dataclass
 class Config:
     # ── Sensor polling ────────────────────────────────────────────────
@@ -21,6 +48,12 @@ class Config:
     bme280_address: int = 0x76
     w1_devices_dir: Path = Path("/sys/bus/w1/devices")
     mock_sensors: bool = False  # explicitly enabled for local development
+
+    # Optional read-only Kasa monitoring; credentials never go to the browser.
+    plugs: list[PlugConfig] = field(default_factory=list)
+    plug_poll_interval_sec: int = 60
+    kasa_username: str = field(default="", repr=False)
+    kasa_password: str = field(default="", repr=False)
 
     # ── Camera & Photoperiod ──────────────────────────────────────────
     camera_device: str = "/dev/video0"
@@ -65,6 +98,7 @@ class Config:
     def __post_init__(self) -> None:
         bounds = {
             "poll_interval_sec": (1, None),
+            "plug_poll_interval_sec": (10, None),
             "daily_capture_hour": (0, 23),
             "daily_capture_minute": (0, 59),
             "stream_fps": (1, None),
@@ -94,6 +128,19 @@ class Config:
             raise ValueError("Temperature thresholds must be finite numbers")
         if not self.temp_min_crit_f < self.temp_min_warn_f < self.temp_max_crit_f:
             raise ValueError("Temperature thresholds must satisfy critical low < warning < high")
+
+        if not isinstance(self.plugs, list):
+            raise ValueError("plugs must be a list")
+        try:
+            self.plugs = [p if isinstance(p, PlugConfig) else PlugConfig(**p) for p in self.plugs]
+        except TypeError as exc:
+            raise ValueError("Each plug must contain valid PlugConfig settings") from exc
+        if len({p.id for p in self.plugs}) != len(self.plugs):
+            raise ValueError("Plug ids must be unique")
+        if len({p.host for p in self.plugs}) != len(self.plugs):
+            raise ValueError("Plug hosts must be unique")
+        if not isinstance(self.kasa_username, str) or not isinstance(self.kasa_password, str):
+            raise ValueError("Kasa credentials must be strings")
 
         if isinstance(self.w1_devices_dir, str):
             self.w1_devices_dir = Path(self.w1_devices_dir)
@@ -155,6 +202,9 @@ def load_config(path: str | Path | None = None) -> Config:
         raw["heartbeat_url"] = os.environ["CITRUSPI_HEARTBEAT_URL"]
     if "CITRUSPI_AI_API_KEY" in os.environ:
         raw["ai_api_key"] = os.environ["CITRUSPI_AI_API_KEY"]
+    for key in ("kasa_username", "kasa_password"):
+        if f"CITRUSPI_{key.upper()}" in os.environ:
+            raw[key] = os.environ[f"CITRUSPI_{key.upper()}"]
 
     valid_fields = {f.name for f in dataclasses.fields(Config)}
     filtered: dict[str, Any] = {}

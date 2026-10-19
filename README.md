@@ -70,6 +70,69 @@ python -m citruspi --mock
 
 ---
 
+## Optional Kasa Plug Monitoring
+
+Install the optional dependency on the Pi (also included in `dev` dependencies):
+
+```bash
+cd ~/citruspi
+.venv/bin/pip install -e ".[plugs]"
+```
+
+Add plugs to `config.yaml`; the commented examples in `config.example.yaml` use the
+heater at `192.168.1.230` and grow light at `192.168.1.229`. Reserve these IPs in the
+router. Each `id` identifies equipment history, so keep it stable when renaming a plug.
+If a plug is reassigned to different equipment, give it a new id.
+
+Set `kasa_username` and `kasa_password` in the ignored `config.yaml`, then run
+`chmod 600 config.yaml`. These are your TP-Link account credentials, used for local
+authentication; readings are requested directly from each plug, not from a cloud API.
+`CITRUSPI_KASA_USERNAME` and `CITRUSPI_KASA_PASSWORD` override these settings if you
+already manage secrets through the service environment. Shell exports alone do not
+change the environment of the systemd service. Credentials are never included in
+dashboard/API responses or diagnostic JSON.
+
+Verify access **before restarting the service**:
+
+```bash
+.venv/bin/python -m citruspi --check-plugs
+```
+
+This reads each configured plug once, prints watts, activity, relay state and available
+device metadata, and exits. It does not write telemetry or switch/configure devices.
+Exit status is nonzero if any plug cannot provide power readings. If authentication
+fails, check credentials and the Kasa app's **Settings > Third-Party Compatibility**.
+Supported models do not guarantee support for every firmware version; unsupported
+firmware is reported explicitly. The diagnostic uses real devices even with `--mock`.
+
+Once both report `"status": "ok"`, restart CitrusPi:
+
+```bash
+sudo systemctl restart citruspi
+```
+
+Monitoring polls every 60 seconds in its own thread and reconnects after errors, so
+plug failures do not block temperature monitoring. With no plugs configured, the
+dashboard is unchanged and the Kasa dependency is not required. Normal `--mock` mode
+pauses all plug polling and labels the equipment section accordingly.
+
+Equipment cards distinguish **plug enabled** from **equipment active**, inferred
+from measured watts. Tune `active_watts` and `idle_watts` to the observed heater/light
+loads. Initial activity is detected immediately outside the threshold band; subsequent
+changes require two consecutive observations, with hysteresis between the thresholds.
+Missing power resets activity to unknown. Failures and stale readings never count as off.
+
+The power chart shares the selected 24h–30d range and overlays canopy/root temperature.
+Readings persist in SQLite alongside existing sensor history. Rolling 24h runtime,
+duty cycle and energy are estimates from raw observations; intervals with missing
+endpoints or gaps longer than twice the polling period are excluded. Coverage makes
+partial collection visible, and no usage is extrapolated after the last sample.
+Runtime uses the preceding observed state; energy uses the average endpoint watts.
+The plug's own **today counter** is shown separately: it uses the device's day boundary,
+can reset, and is never summed into our rolling estimate. Detailed history starts when
+CitrusPi begins collecting. This integration only observes; it adds no switching or
+automatic equipment alerts.
+
 ## MicroSD Card Protection (`log2ram`)
 
 Raspberry Pi OS writes constant syslog data to disk, which wears out consumer microSD cards over multi-month deployments.
@@ -137,6 +200,7 @@ Local regression checks (after installing the `dev` dependencies):
 ```bash
 python -m pytest
 node --test tests/test_dashboard.cjs  # Optional UI logic checks; requires Node.js, no npm install
+node --test tests/test_plugs.cjs      # Equipment cards and power history behavior
 ```
 
 ```bash

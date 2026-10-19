@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -11,6 +12,45 @@ from citruspi.models import Reading
 from citruspi.sensors import SensorHub
 from citruspi.store import Store
 from citruspi.web import create_app
+
+
+def test_power_api_staleness_unknowns_escaping_and_credentials(tmp_path):
+    from citruspi.models import PowerReading
+
+    cfg = Config(
+        mock_sensors=True, data_dir=tmp_path / "data", captures_dir=tmp_path / "captures",
+        kasa_username="private-email", kasa_password="private-password",
+        plugs=[{"id": "heater", "name": "Heater <script>", "host": "192.0.2.1"},
+               {"id": "light", "name": "Light", "host": "192.0.2.2"}],
+    )
+    store = Store(cfg.data_dir)
+    timestamp = (datetime.now(UTC) - timedelta(minutes=10)).strftime('%Y-%m-%dT%H:%M:%SZ')
+    store.insert_power(PowerReading("heater", timestamp, True, 200, True, 1.25))
+    client = TestClient(create_app(cfg, store, SensorHub(cfg)))
+    current = client.get("/api/plugs").json()
+    assert current[0]["stale"] is True
+    assert current[0]["latest"]["relay_on"] is True
+    assert current[0]["stale_after_sec"] == 180
+    assert current[1]["latest"] is None
+    assert current[1]["summary"]["estimated_kwh"] is None
+    assert current[0]["monitoring"] is False
+    for url in ("/", "/api/plugs", "/api/plugs/history?hours=24"):
+        response = client.get(url)
+        assert response.status_code == 200
+        assert "private-email" not in response.text
+        assert "private-password" not in response.text
+        assert "192.0.2.1" not in response.text
+    assert 'id="powerChart"' in client.get("/").text
+    assert client.get("/api/plugs/history").json()[0]["readings"][0]["power_w"] == 200
+    with patch.object(store, "power_history", return_value=[]) as history:
+        client.get('/api/plugs/history?hours=999999')
+        assert history.call_args.args[1] == 720
+
+
+def test_plug_endpoints_disabled_by_default(client):
+    assert client.get("/api/plugs").json() == []
+    assert client.get("/api/plugs/history").json() == []
+    assert 'id="powerChart"' not in client.get("/").text
 
 
 @pytest.fixture

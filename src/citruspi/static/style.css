@@ -1118,3 +1118,10 @@ canvas {
         width: 100%;
     }
 }
+/* Optional equipment monitoring */
+.equipment-section { margin-top: 1rem; padding: 1rem; }
+.plug-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; margin: 1rem 0; }
+.plug-card { border: 1px solid var(--border); border-radius: 10px; padding: 1rem; }
+.plug-card p { margin: 0.35rem 0; }
+.plug-name { font-weight: 600; }
+.plug-watts { font-size: 1.7rem; font-weight: 600; }

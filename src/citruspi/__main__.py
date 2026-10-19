@@ -14,6 +14,10 @@ def main() -> None:
     parser.add_argument("--port", type=int, help="Web server port")
     parser.add_argument("--mock", action="store_true", help="Force mock sensors")
     parser.add_argument(
+        "--check-plugs", action="store_true",
+        help="Read configured plugs once, print JSON, and exit without changing devices",
+    )
+    parser.add_argument(
         "--test-alert",
         action="store_true",
         help="Send test ntfy alert and heartbeat ping, then exit",
@@ -41,6 +45,21 @@ def main() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logger = logging.getLogger("citruspi")
+
+    if args.check_plugs:
+        import asyncio
+        import json
+
+        from citruspi.plugs import check_plugs
+
+        if not config.plugs:
+            parser.error("No plugs configured; add plugs to config.yaml")
+        try:
+            results = asyncio.run(check_plugs(config))
+        except ImportError:
+            parser.error('Install plug support first: pip install -e ".[plugs]"')
+        print(json.dumps(results, indent=2))
+        sys.exit(0 if all(r["status"] == "ok" for r in results) else 1)
 
     if args.analyze_now:
         if not config.ai_enabled:
@@ -185,6 +204,15 @@ def main() -> None:
     )
     sensor_thread.start()
     photo_thread.start()
+    plug_thread = None
+    if config.plugs and not config.mock_sensors:
+        from citruspi.plugs import run_plug_loop
+
+        plug_thread = threading.Thread(
+            target=run_plug_loop, args=(config, store, stop_event),
+            daemon=True, name="plugs",
+        )
+        plug_thread.start()
 
     logger.info("")
     logger.info("🍊 CitrusPi running at http://%s:%d", config.host, config.port)
@@ -204,6 +232,8 @@ def main() -> None:
         pass
     finally:
         stop_event.set()
+        if plug_thread is not None:
+            plug_thread.join(timeout=15)
         logger.info("🍊 CitrusPi stopped.")
 
 

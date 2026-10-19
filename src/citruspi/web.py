@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -124,6 +125,35 @@ def create_app(
     @app.get("/api/photos")
     def api_photos() -> list[dict[str, str]]:
         return camera.list_photos(config)
+
+    @app.get("/api/plugs")
+    def api_plugs() -> list[dict[str, Any]]:
+        now = datetime.now(UTC)
+        result = []
+        for plug in config.plugs:
+            latest = store.latest_power(plug.id)
+            stale = latest is None or (
+                now - datetime.fromisoformat(latest["timestamp"])
+            ).total_seconds() > config.plug_poll_interval_sec * 3
+            result.append({
+                "id": plug.id, "name": plug.name, "role": plug.role,
+                "latest": latest, "stale": stale,
+                "monitoring": not config.mock_sensors,
+                "stale_after_sec": config.plug_poll_interval_sec * 3,
+                "summary": store.power_summary(plug.id, config.plug_poll_interval_sec, now),
+            })
+        return result
+
+    @app.get("/api/plugs/history")
+    def api_plug_history(hours: int = 24) -> list[dict[str, Any]]:
+        safe_hours = max(1, min(hours, 720))
+        return [{
+            "id": plug.id, "name": plug.name, "role": plug.role,
+            "max_gap_sec": config.plug_poll_interval_sec * 2,
+            "readings": store.power_history(
+                plug.id, safe_hours, max_gap_sec=config.plug_poll_interval_sec * 2,
+            ),
+        } for plug in config.plugs]
 
     @app.get("/api/reports")
     def api_reports(limit: int = 100) -> list[dict[str, Any]]:

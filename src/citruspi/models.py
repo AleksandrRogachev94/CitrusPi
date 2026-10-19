@@ -9,6 +9,19 @@ from typing import Any
 
 
 @dataclass(frozen=True)
+class PowerReading:
+    """One plug observation; missing values mean unknown, never zero."""
+
+    plug_id: str
+    timestamp: str
+    relay_on: bool | None = None
+    power_w: float | None = None
+    active: bool | None = None
+    energy_today_kwh: float | None = None
+    status: str = "ok"
+
+
+@dataclass(frozen=True)
 class Reading:
     """A single sensor reading measurement."""
 

@@ -8,6 +8,38 @@ import yaml
 from citruspi.config import Config, load_config
 
 
+def test_plug_config_and_secret_env_override(tmp_path, monkeypatch):
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump({
+        "plugs": [{"id": "heater", "name": "Heater", "host": "192.0.2.1"}],
+        "kasa_password": "yaml-secret",
+    }))
+    monkeypatch.setenv("CITRUSPI_KASA_USERNAME", "user")
+    monkeypatch.setenv("CITRUSPI_KASA_PASSWORD", "env-secret")
+    cfg = load_config(path)
+    assert cfg.plugs[0].id == "heater"
+    assert cfg.kasa_password == "env-secret"
+    assert "secret" not in repr(cfg)
+    assert "user" not in repr(cfg)
+
+
+@pytest.mark.parametrize("settings", [
+    {"plugs": None}, {"plugs": ["heater"]}, {"plugs": [{}]},
+    {"plugs": [{"id": "Bad ID", "name": "Heater", "host": "192.0.2.1"}]},
+    {"plugs": [{"id": "heater", "name": "Heater", "host": ""}]},
+    {"plugs": [{"id": "heater", "name": "Heater", "host": "a", "role": "fan"}]},
+    {"plugs": [{"id": "heater", "name": "Heater", "host": "a", "idle_watts": 5}]},
+    {"plugs": [{"id": "heater", "name": "Heater", "host": "a", "active_watts": True}]},
+    {"plugs": [{"id": "heater", "name": "Heater", "host": "a", "active_watts": float('nan')}]},
+    {"plugs": [{"id": "heater", "name": "Heater", "host": "a"}] * 2},
+    {"plug_poll_interval_sec": 0}, {"plug_poll_interval_sec": True},
+    {"kasa_password": None},
+])
+def test_invalid_plug_config(settings):
+    with pytest.raises(ValueError):
+        Config(**settings)
+
+
 def test_default_config() -> None:
     cfg = Config()
     assert isinstance(cfg, Config)

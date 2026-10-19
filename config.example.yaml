@@ -14,6 +14,30 @@ bme280_address: 0x76
 # Force mock sensors (default false; true runs simulated telemetry)
 mock_sensors: false
 
+# Optional, read-only Kasa energy monitoring. Install with: pip install -e ".[plugs]"
+# Use DHCP reservations for hosts. Keep ids stable to preserve equipment history.
+# active/idle thresholds use watts; changes require two consecutive observations.
+# No plug switching or device settings are changed. Mock mode pauses plug polling.
+plug_poll_interval_sec: 60
+plugs: []
+# plugs:
+#   - id: heater
+#     name: Heater
+#     role: heater
+#     host: 192.168.1.230
+#     active_watts: 10
+#     idle_watts: 3
+#   - id: light
+#     name: Grow light
+#     role: light
+#     host: 192.168.1.229
+#     active_watts: 5
+#     idle_watts: 2
+# Credentials for local authentication. Protect config.yaml with chmod 600.
+# Environment overrides: CITRUSPI_KASA_USERNAME and CITRUSPI_KASA_PASSWORD.
+kasa_username: ""
+kasa_password: ""
+
 # Camera settings (1920x1080 default for Logitech C930e with hardware MJPG)
 camera_device: "/dev/video0"
 camera_device_index: 0

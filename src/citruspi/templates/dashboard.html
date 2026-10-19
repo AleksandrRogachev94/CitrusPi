@@ -2,6 +2,9 @@
 {% from "_ai_report.html" import report_body %}
 {% block head %}
 <script src="/static/charts.js?v={{ static_version('charts.js') }}"></script>
+{% if config.plugs %}
+<script defer src="/static/plugs.js?v={{ static_version('plugs.js') }}"></script>
+{% endif %}
 {% endblock %}
 {% block content %}
 
@@ -115,6 +118,22 @@
     </div>
 
 </div>
+
+{% if config.plugs %}
+<section class="card equipment-section" aria-label="Equipment monitoring">
+    <div class="card-header-compact">
+        <h2>⚡ Equipment</h2>
+        <span class="muted small">{% if is_mock %}Monitoring paused in mock mode{% else %}Local power monitoring{% endif %}</span>
+    </div>
+    <div id="plug-cards" class="plug-cards" aria-live="polite">
+        <p class="muted small">Loading equipment…</p>
+    </div>
+    <p class="muted small">Runtime and energy estimates cover observed portions of the last 24 hours. Gaps are excluded.</p>
+    <p id="power-chart-status" class="muted small" role="status">Loading power history…</p>
+    <div class="chart-wrapper"><canvas id="powerChart" aria-label="Equipment power and tent temperatures over time" role="img"></canvas></div>
+    <p class="muted small">Power and temperature history follows the time range selected above. Activity is inferred from watts.</p>
+</section>
+{% endif %}
 
 <script>
 // ── Camera Stage Controller ──────────────────────────────────────────
@@ -310,6 +329,7 @@ function setChartRange(hours) {
 
 async function loadCharts(hours = currentRangeHours) {
     const requestId = ++chartRequestId;
+    window.loadPowerChart?.(hours);
     let data;
     try {
         const res = await fetch(`/api/history?hours=${hours}`);

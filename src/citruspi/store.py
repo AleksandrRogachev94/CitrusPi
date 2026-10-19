@@ -12,13 +12,14 @@ import json
 import logging
 import sqlite3
 import threading
-from datetime import UTC, datetime
+from dataclasses import asdict
+from datetime import UTC, datetime, timedelta
 from itertools import chain, islice
 from math import ceil
 from pathlib import Path
 from typing import Any
 
-from citruspi.models import Reading
+from citruspi.models import PowerReading, Reading
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,24 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
         [
             "ALTER TABLE daily_reports ADD COLUMN trees TEXT NOT NULL DEFAULT '[]';",
             "ALTER TABLE daily_reports ADD COLUMN reference_dates TEXT;",
+        ],
+    ),
+    (
+        6,
+        "add_power_readings",
+        [
+            """CREATE TABLE IF NOT EXISTS power_readings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                plug_id TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                relay_on INTEGER,
+                power_w REAL,
+                active INTEGER,
+                energy_today_kwh REAL,
+                status TEXT NOT NULL
+            );""",
+            """CREATE INDEX IF NOT EXISTS idx_power_plug_timestamp
+                ON power_readings (plug_id, timestamp);""",
         ],
     ),
 ]
@@ -182,6 +201,121 @@ class Store:
             )
 
     # ── Read Operations ───────────────────────────────────────────────────────
+
+    def insert_power(self, reading: PowerReading) -> None:
+        conn = self._get_conn()
+        with conn:
+            conn.execute(
+                """INSERT INTO power_readings
+                   (plug_id, timestamp, relay_on, power_w, active, energy_today_kwh, status)
+                   VALUES (:plug_id, :timestamp, :relay_on, :power_w, :active,
+                           :energy_today_kwh, :status)""",
+                asdict(reading),
+            )
+
+    @staticmethod
+    def _decode_power(row: sqlite3.Row) -> dict[str, Any]:
+        result = dict(row)
+        for key in ("relay_on", "active"):
+            if result[key] is not None:
+                result[key] = bool(result[key])
+        return result
+
+    def latest_power(self, plug_id: str) -> dict[str, Any] | None:
+        row = self._get_conn().execute(
+            """SELECT * FROM power_readings WHERE plug_id = ?
+               ORDER BY timestamp DESC, id DESC LIMIT 1""", (plug_id,),
+        ).fetchone()
+        return self._decode_power(row) if row else None
+
+    def power_history(
+        self, plug_id: str, hours: int = 24, max_points: int = 1000,
+        max_gap_sec: int = 120,
+    ) -> list[dict[str, Any]]:
+        """Bound chart payloads while retaining endpoints, power extrema and missing data."""
+        if max_points < 5:
+            raise ValueError("max_points must be at least 5")
+        cursor = self._get_conn().execute(
+            """SELECT *, COUNT(*) OVER () AS _total FROM power_readings
+               WHERE plug_id = ?
+                 AND timestamp >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?)
+               ORDER BY timestamp, id""", (plug_id, f"-{hours} hours"),
+        )
+        first = cursor.fetchone()
+        if first is None:
+            return []
+        # Insert gap markers before sampling, so sparse chart points are not mistaken
+        # for collection outages. At most 2N rows including these markers.
+        bucket_size = ceil(first["_total"] * 2 / max(1, max_points // 5))
+
+        def with_gaps():
+            previous = None
+            for raw in chain([first], cursor):
+                row = self._decode_power(raw)
+                row.pop("_total")
+                timestamp = datetime.fromisoformat(row["timestamp"])
+                if previous is not None and (timestamp - previous).total_seconds() > max_gap_sec:
+                    yield {**row, "timestamp": (previous + timedelta(seconds=1)).strftime(
+                        '%Y-%m-%dT%H:%M:%SZ'), "power_w": None, "active": None}
+                yield row
+                previous = timestamp
+
+        rows = with_gaps()
+        sampled = []
+        while bucket := list(islice(rows, bucket_size)):
+            indices = {0, len(bucket) - 1}
+            valid = [i for i, row in enumerate(bucket) if row["power_w"] is not None]
+            if valid:
+                indices.update((min(valid, key=lambda i: bucket[i]["power_w"]),
+                                max(valid, key=lambda i: bucket[i]["power_w"])))
+            missing = next((i for i, row in enumerate(bucket) if row["power_w"] is None), None)
+            if missing is not None:
+                indices.add(missing)
+            for index in sorted(indices):
+                sampled.append(bucket[index])
+        return sampled
+
+    def power_summary(
+        self, plug_id: str, poll_interval: int, now: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Estimate rolling 24h energy/runtime from raw samples, excluding gaps.
+
+        Device 'today' counters are stored separately: never sum them, since they
+        reset at the device's local midnight. Do not extrapolate after the last sample.
+        """
+        end = now or datetime.now(UTC)
+        start = end - timedelta(hours=24)
+        max_gap = poll_interval * 2
+        cursor = self._get_conn().execute(
+            """SELECT timestamp, power_w, active FROM power_readings
+               WHERE plug_id = ? AND timestamp >= ? AND timestamp <= ?
+               ORDER BY timestamp, id""",
+            (plug_id, (start - timedelta(seconds=max_gap)).strftime('%Y-%m-%dT%H:%M:%SZ'),
+             end.strftime('%Y-%m-%dT%H:%M:%SZ')),
+        )
+        energy = observed = runtime = activity_observed = 0.0
+        previous = None
+        for row in cursor:
+            time = datetime.fromisoformat(row["timestamp"])
+            if previous is not None:
+                prev_time, prev = previous
+                gap = (time - prev_time).total_seconds()
+                seconds = (min(time, end) - max(prev_time, start)).total_seconds()
+                if 0 < gap <= max_gap and seconds > 0:
+                    if prev["power_w"] is not None and row["power_w"] is not None:
+                        energy += (prev["power_w"] + row["power_w"]) / 2 * seconds / 3_600_000
+                        observed += seconds
+                    if prev["active"] is not None and row["active"] is not None:
+                        activity_observed += seconds
+                        runtime += seconds if prev["active"] else 0
+            previous = time, row
+        return {
+            "estimated_kwh": round(energy, 4) if observed else None,
+            "runtime_hours": round(runtime / 3600, 2) if activity_observed else None,
+            "duty_cycle_pct": round(runtime / activity_observed * 100, 1)
+                if activity_observed else None,
+            "coverage_pct": round(observed / 86400 * 100, 1),
+        }
 
     def latest(self) -> dict[str, Any] | None:
         """Return the most recent reading."""
