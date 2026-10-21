@@ -304,6 +304,7 @@ body {
     display: flex;
     flex-direction: column;
     min-width: 0;
+    align-self: stretch;
 }
 
 .charts-column {
@@ -1195,13 +1196,24 @@ canvas {
     gap: 1rem;
     margin: 0.75rem 0;
 }
-.plug-card { background: var(--surface-sub); border: 1px solid var(--border); border-radius: 10px; padding: 1rem; }
-.plug-card p, .plug-usage p { margin: 0.3rem 0; }
+.equipment-table-wrapper { overflow-x: auto; }
+.equipment-table { width: 100%; border-collapse: collapse; margin-top: 0.75rem; font-variant-numeric: tabular-nums; }
+.equipment-table th, .equipment-table td { padding: 0.9rem 0.75rem; text-align: right; vertical-align: middle; }
+.equipment-table th:first-child, .equipment-table td:first-child { text-align: left; padding-left: 0; }
+.equipment-table th:last-child, .equipment-table td:last-child { padding-right: 0; }
+.equipment-table thead th { color: var(--text-muted); font-size: 0.75rem; font-weight: 500; white-space: nowrap; }
+.equipment-table tbody tr { border-top: 1px solid var(--border); }
+.equipment-table tfoot { border-top: 2px solid var(--border); background: var(--surface-sub); }
+.equipment-table tfoot th:first-child { padding-left: 0.75rem; }
+.equipment-table tfoot td:last-child { padding-right: 0.75rem; }
+.equipment-table .metric-value { font-size: 1.15rem; font-weight: 600; white-space: nowrap; }
+.equipment-table .metric-note { display: block; margin-top: 0.2rem; color: var(--text-muted); font-size: 0.7rem; font-weight: 400; }
+.equipment-estimate-note { margin-top: 0.75rem; line-height: 1.5; }
+.plug-heading p, .plug-usage p { margin: 0.3rem 0; }
 .plug-name { font-weight: 600; }
-.plug-heading, .equipment-lane-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
+.equipment-lane-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
 .equipment-lane-heading p { margin: 0 0 0.2rem; }
 .plug-state { color: var(--text-muted); font-size: 0.85rem; }
-.plug-watts { font-size: 1.6rem; font-weight: 700; }
 .power-details { margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 0.75rem; }
 .power-details summary { cursor: pointer; color: var(--text-muted); font-size: 0.85rem; }
 .equipment-lanes { display: grid; gap: 0.5rem; margin-top: 0.5rem; }

@@ -1,6 +1,10 @@
 // Read-only equipment status and history. User-configured names stay text, never HTML.
 (() => {
     const cards = document.getElementById('plug-cards');
+    const totals = document.getElementById('plug-totals');
+    const totalWatts = document.getElementById('plug-total-watts');
+    const totalEnergy = document.getElementById('plug-total-energy');
+    const rangeLabel = document.getElementById('equipment-range');
     const electricityCost = document.getElementById('electricity-cost');
     const details = document.getElementById('power-details');
     const lanes = document.getElementById('equipment-lanes');
@@ -35,9 +39,24 @@
         return Number.isFinite(value) ? `~$${value.toFixed(2)}` : '—';
     }
 
-    function totalCost(plugs) {
-        const values = plugs.map(p => p.summary.estimated_cost_usd).filter(Number.isFinite);
-        return values.length ? money(values.reduce((sum, value) => sum + value, 0)) : '—';
+    function total(values, formatter) {
+        const known = values.filter(Number.isFinite);
+        if (!known.length) return '—';
+        return formatter(known.reduce((sum, value) => sum + value, 0))
+            + (known.length < values.length ? ' (partial)' : '');
+    }
+
+    function updateLiveTotal() {
+        totalWatts.textContent = total([...cards.children].map(row => parseFloat(row.dataset.watts)),
+            watts => format(watts, watts === 0 ? 0 : 1, ''));
+    }
+
+    function messageRow(message) {
+        const row = element('tr', '');
+        const cell = element('td', 'muted small', message);
+        cell.colSpan = electricityCost ? 4 : 3;
+        row.appendChild(cell);
+        return row;
     }
 
     function duration(ms) {
@@ -68,9 +87,11 @@
         for (const card of cards.children) {
             if (card.dataset.timestamp && Date.now() - Date.parse(card.dataset.timestamp) > Number(card.dataset.staleMs)) {
                 card.querySelector('.plug-state').textContent = 'Unknown · readings stale';
-                card.querySelector('.plug-watts').textContent = '— W';
+                card.querySelector('.plug-watts').textContent = '—';
+                card.dataset.watts = '';
             }
         }
+        updateLiveTotal();
     }
 
     async function refreshCards(hours = currentRangeHours) {
@@ -78,7 +99,9 @@
         if (summaryHours !== hours) {
             summaryHours = hours;
             document.getElementById('plug-details').replaceChildren();
-            if (electricityCost) electricityCost.textContent = 'Loading electricity estimate…';
+            cards.replaceChildren(messageRow('Loading selected range…'));
+            totals.hidden = true;
+            rangeLabel.textContent = 'Loading selected range…';
         }
         try {
             const plugs = await getJSON(`/api/plugs?hours=${hours}`);
@@ -91,28 +114,29 @@
                     auth_error: 'Authentication needed', unsupported: 'Firmware unsupported',
                     unreachable: 'Unknown · plug unreachable', energy_unavailable: 'Power unavailable',
                 }[latest?.status] || (latest?.active === true ? 'Active' : latest?.active === false ? 'Idle' : 'Unknown'));
-                const card = element('article', 'plug-card');
+                const card = element('tr', 'plug-row');
                 card.dataset.timestamp = latest?.timestamp || '';
                 card.dataset.staleMs = plug.stale_after_sec * 1000;
-                const heading = element('div', 'plug-heading');
+                const heading = element('th', 'plug-heading');
+                heading.scope = 'row';
                 heading.appendChild(element('p', 'plug-name', plug.name));
                 heading.appendChild(element('p', 'plug-state', state));
                 card.appendChild(heading);
                 const watts = known ? latest?.power_w : null;
-                card.appendChild(element('p', 'plug-watts', format(watts, watts === 0 ? 0 : 1, ' W')));
-                card.appendChild(element('p', 'muted small', `Today: ${format(latest?.energy_today_kwh, 3, ' kWh')}${!known ? ' (last recorded)' : ''}`));
+                card.dataset.watts = Number.isFinite(watts) ? String(watts) : '';
+                card.appendChild(element('td', 'plug-watts metric-value', format(watts, watts === 0 ? 0 : 1, '')));
+                const summary = plug.summary;
+                const energy = element('td', 'plug-energy');
+                energy.appendChild(element('span', 'metric-value', Number.isFinite(summary.estimated_kwh)
+                    ? `~${format(summary.estimated_kwh, 3, '')}` : '—'));
+                energy.appendChild(element('span', 'metric-note', format(summary.coverage_pct, 0, '% coverage')));
+                card.appendChild(energy);
+                if (electricityCost) card.appendChild(element('td', 'plug-cost metric-value', money(summary.estimated_cost_usd)));
 
                 const report = element('article', 'plug-usage');
                 report.appendChild(element('p', 'plug-name', plug.name));
-                const summary = plug.summary;
                 const runtime = summary.runtime_hours == null ? '—' : duration(summary.runtime_hours * 3600000);
-                const energy = summary.estimated_kwh == null ? '—' : `~${format(summary.estimated_kwh, 3, ' kWh')}`;
-                const range = hours <= 24 ? `${hours}h` : `${hours / 24}d`;
-                report.appendChild(element('p', 'small', `${range} · ${runtime} active · ${energy}`));
-                if (electricityCost) {
-                    report.appendChild(element('p', 'small', `Estimated cost: ${money(summary.estimated_cost_usd)}`));
-                }
-                report.appendChild(element('p', 'muted small', `${format(summary.coverage_pct, 0, '% data coverage')}`));
+                report.appendChild(element('p', 'small', `${runtime} active in selected range`));
                 // The timestamp makes this a historical observation, not a second live claim.
                 if (latest) {
                     const relay = latest.relay_on == null ? 'unknown' : latest.relay_on ? 'enabled' : 'off';
@@ -123,18 +147,22 @@
             });
             cards.replaceChildren(...nodes);
             document.getElementById('plug-details').replaceChildren(...usage);
-            if (electricityCost) {
-                const range = hours <= 24 ? `${hours}h` : `${hours / 24}d`;
-                electricityCost.textContent = `Estimated electricity total (${range}): ${totalCost(plugs)}`;
-                if (plugs.some(p => p.summary.estimated_cost_usd == null)) {
-                    electricityCost.textContent += ' · incomplete plug data';
-                }
-            }
+            const range = hours <= 24 ? `${hours}h` : `${hours / 24}d`;
+            rangeLabel.textContent = `Now is live · energy${electricityCost ? ' & cost' : ''}: last ${range}`;
+            updateLiveTotal();
+            totalEnergy.textContent = total(plugs.map(p => p.summary.estimated_kwh),
+                kwh => `~${format(kwh, 3, '')}`);
+            if (electricityCost) electricityCost.textContent = total(
+                plugs.map(p => p.summary.estimated_cost_usd), money);
+            totals.hidden = false;
         } catch (_) {
             if (current !== cardRequest) return;
-            cards.replaceChildren(element('p', 'muted small', 'Equipment data unavailable. Retrying shortly.'));
+            cards.replaceChildren(messageRow('Equipment data unavailable. Retrying shortly.'));
+            totals.hidden = true;
+            rangeLabel.textContent = 'Equipment data unavailable';
             document.getElementById('plug-details').replaceChildren();
-            if (electricityCost) electricityCost.textContent = 'Electricity estimate unavailable.';
+            totalWatts.textContent = totalEnergy.textContent = '—';
+            if (electricityCost) electricityCost.textContent = '—';
         }
     }
 

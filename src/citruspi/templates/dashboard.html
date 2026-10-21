@@ -157,19 +157,34 @@
         <h2>⚡ Equipment</h2>
         <span class="muted small">{% if is_mock %}Monitoring paused in mock mode{% else %}Local power monitoring{% endif %}</span>
     </div>
-    <div id="plug-cards" class="plug-cards" aria-live="polite">
-        <p class="muted small">Loading equipment…</p>
+    <p id="equipment-range" class="muted small">Now is live · energy{% if config.electricity %} &amp; cost{% endif %}: last 24h</p>
+    <div class="equipment-table-wrapper">
+        <table class="equipment-table" aria-label="Equipment power, selected-range energy and estimated cost">
+            <thead><tr>
+                <th scope="col">Equipment</th>
+                <th scope="col">Now <span class="muted">(W)</span></th>
+                <th scope="col">Energy <span class="muted">(kWh)</span></th>
+                {% if config.electricity %}<th scope="col">Est. cost</th>{% endif %}
+            </tr></thead>
+            <tbody id="plug-cards" aria-live="polite">
+                <tr><td colspan="{{ 4 if config.electricity else 3 }}" class="muted small">Loading equipment…</td></tr>
+            </tbody>
+            <tfoot id="plug-totals" hidden><tr>
+                <th scope="row">Total</th>
+                <td id="plug-total-watts" class="metric-value">—</td>
+                <td id="plug-total-energy" class="metric-value">—</td>
+                {% if config.electricity %}<td id="electricity-cost" class="metric-value">—</td>{% endif %}
+            </tr></tfoot>
+        </table>
     </div>
-    {% if config.electricity %}
-    <p id="electricity-cost" aria-live="polite">Loading electricity estimate…</p>
-    <p class="muted small">Monitored plugs only · gaps excluded · current configured rates.
+    <p class="equipment-estimate-note muted small">Energy{% if config.electricity %} and cost{% endif %} estimates exclude gaps; coverage shows how much of the selected range was recorded.
+        Totals cover monitored plugs; “partial” means a plug is missing data.
+        {% if config.electricity %}
         {% if config.electricity.delivery_rate == 0 %}Supply only; delivery charges excluded.{% else %}Includes configured delivery rate.{% endif %}
-        Fixed fees and other bill charges excluded.</p>
-    {% endif %}
+        Fixed fees and other bill charges excluded.{% endif %}</p>
     <details id="power-details" class="power-details">
-        <summary>Power &amp; energy details</summary>
+        <summary>Runtime &amp; power history</summary>
         <div id="plug-details" class="plug-cards"></div>
-        <p class="muted small">Usage and cost follow the history range above and exclude gaps. Today is the plug’s daily total.</p>
         <p id="power-chart-status" class="muted small" role="status"></p>
         <div class="chart-wrapper"><canvas id="powerChart" role="img" aria-label="Equipment power history in watts"></canvas></div>
     </details>

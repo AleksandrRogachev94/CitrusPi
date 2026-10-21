@@ -43,6 +43,7 @@ function harness(electricity = false) {
         };
     }
     const nodes = Object.fromEntries(['plug-cards', 'plug-details', 'power-details',
+        'plug-totals', 'plug-total-watts', 'plug-total-energy', 'equipment-range',
         'power-chart-status', 'powerChart', 'activityChart', 'activity-chart-status',
         'activity-history-note', 'activity-selection', 'activity-periods', 'equipment-lanes'].map(id => [id, element()]));
     if (electricity) nodes['electricity-cost'] = element();
@@ -90,15 +91,18 @@ test('global range drives usage and combined costs; missing data never becomes f
     await flush();
     assert.ok(requests.includes('/api/plugs?hours=168'));
     assert.ok(requests.includes('/api/plugs/history?hours=168'));
-    assert.equal(h.nodes['electricity-cost'].textContent, 'Estimated electricity total (7d): ~$1.25 · incomplete plug data');
-    assert.match(h.nodes['plug-details'].children[0].children[1].textContent, /^7d/);
+    assert.equal(h.nodes['electricity-cost'].textContent, '~$1.25 (partial)');
+    assert.match(h.nodes['equipment-range'].textContent, /last 7d/);
+    assert.equal(h.nodes['plug-total-energy'].textContent, '~3.000 (partial)');
     h.respond(async url => url.startsWith('/api/plugs?') ? [plug({ summary: { estimated_cost_usd: null } })] : []);
     await h.context.window.loadPowerChart(1);
     await flush();
-    assert.match(h.nodes['electricity-cost'].textContent, /\(1h\): —/);
+    assert.equal(h.nodes['electricity-cost'].textContent, '—');
+    assert.match(h.nodes['equipment-range'].textContent, /last 1h/);
     h.respond(async () => { throw new Error('offline'); });
     await h.intervals[30000]();
-    assert.equal(h.nodes['electricity-cost'].textContent, 'Electricity estimate unavailable.');
+    assert.equal(h.nodes['plug-totals'].hidden, true);
+    assert.equal(h.nodes['electricity-cost'].textContent, '—');
 });
 
 test('a late cost response cannot replace the newly selected range', async () => {
@@ -112,20 +116,24 @@ test('a late cost response cannot replace the newly selected range', async () =>
     await flush();
     release([plug({ summary: { estimated_cost_usd: 999 } })]);
     await flush();
-    assert.equal(h.nodes['electricity-cost'].textContent, 'Estimated electricity total (3d): ~$0.00');
+    assert.equal(h.nodes['electricity-cost'].textContent, '~$0.00');
 });
 
-test('compact cards distinguish enabled relay from idle; usage details are separate', async () => {
+test('equipment rows show live power and selected-range energy together; runtime stays in details', async () => {
     const h = harness();
     await flush();
     const card = h.nodes['plug-cards'].children[0];
     assert.equal(card.querySelector('.plug-name').textContent, 'Heater <script>alert(1)</script>');
     assert.equal(card.querySelector('.plug-state').textContent, 'Idle');
-    assert.equal(card.querySelector('.plug-watts').textContent, '0 W');
+    assert.equal(card.querySelector('.plug-watts').textContent, '0');
     assert.equal(card.children.length, 3);
-    assert.equal(card.children[2].textContent, 'Today: 0.500 kWh');
+    assert.equal(card.querySelector('.metric-value').textContent, '0');
+    assert.equal(card.children[2].children[0].textContent, '~0.500');
+    assert.equal(card.children[2].children[1].textContent, '50% coverage');
+    assert.equal(h.nodes['plug-total-watts'].textContent, '0');
+    assert.equal(h.nodes['plug-total-energy'].textContent, '~0.500');
     const usage = h.nodes['plug-details'].children[0];
-    assert.ok(usage.children.some(c => c.textContent.includes('50% data coverage')));
+    assert.ok(usage.children.some(c => c.textContent.includes('~2 h active in selected range')));
     assert.ok(usage.children.some(c => c.textContent.includes('outlet enabled')));
 });
 
@@ -136,7 +144,30 @@ test('stale readings lose live state without waiting for another API response', 
     card.dataset.timestamp = iso(181);
     h.intervals[5000]();
     assert.equal(card.querySelector('.plug-state').textContent, 'Unknown · readings stale');
-    assert.equal(card.querySelector('.plug-watts').textContent, '— W');
+    assert.equal(card.querySelector('.plug-watts').textContent, '—');
+    assert.equal(h.nodes['plug-total-watts'].textContent, '—');
+    assert.equal(h.nodes['plug-total-energy'].textContent, '~0.500');
+});
+
+test('totals combine plug measurements and mark missing live values without losing history', async () => {
+    const h = harness(true);
+    await flush();
+    h.respond(async url => url.startsWith('/api/plugs?') ? [
+        plug({ latest: { timestamp: iso(0), power_w: 71.1 },
+            summary: { estimated_kwh: 0.885, estimated_cost_usd: 0.16, coverage_pct: 98 } }),
+        plug({ latest: { timestamp: iso(0), power_w: 0 },
+            summary: { estimated_kwh: 0.277, estimated_cost_usd: 0.05, coverage_pct: 98 } }),
+    ] : []);
+    await h.intervals[30000]();
+    assert.equal(h.nodes['plug-total-watts'].textContent, '71.1');
+    assert.equal(h.nodes['plug-total-energy'].textContent, '~1.162');
+    assert.equal(h.nodes['electricity-cost'].textContent, '~$0.21');
+    assert.equal(h.nodes['plug-cards'].children[1].querySelector('.plug-cost').textContent, '~$0.05');
+    h.nodes['plug-cards'].children[0].dataset.timestamp = iso(181);
+    h.intervals[5000]();
+    assert.equal(h.nodes['plug-total-watts'].textContent, '0 (partial)');
+    assert.equal(h.nodes['plug-total-energy'].textContent, '~1.162');
+    assert.equal(h.nodes['electricity-cost'].textContent, '~$0.21');
 });
 
 test('API failure clears current claims and usage details, and recovers on the next poll', async () => {
@@ -144,7 +175,8 @@ test('API failure clears current claims and usage details, and recovers on the n
     await flush();
     h.respond(async () => { throw new Error('offline'); });
     await h.intervals[30000]();
-    assert.match(h.nodes['plug-cards'].children[0].textContent, /unavailable/);
+    assert.match(h.nodes['plug-cards'].children[0].children[0].textContent, /unavailable/);
+    assert.equal(h.nodes['plug-totals'].hidden, true);
     assert.equal(h.nodes['plug-details'].children.length, 0);
     h.respond(async () => [plug()]);
     await h.intervals[30000]();
@@ -322,11 +354,11 @@ test('usage formats hours as readable minutes and missing values stay unknown', 
     h.respond(async () => [plug({ summary: { runtime_hours: 1.38, estimated_kwh: 0.843, coverage_pct: 64 } })]);
     await h.intervals[30000]();
     const usage = h.nodes['plug-details'].children[0];
-    assert.equal(usage.children[1].textContent, '24h · ~1 h 23 min active · ~0.843 kWh');
-    assert.equal(usage.children[2].textContent, '64% data coverage');
+    assert.equal(usage.children[1].textContent, '~1 h 23 min active in selected range');
+    assert.equal(h.nodes['plug-cards'].children[0].children[2].children[1].textContent, '64% coverage');
     h.respond(async () => [plug({ summary: { runtime_hours: null, estimated_kwh: null, coverage_pct: 0 } })]);
     await h.intervals[30000]();
-    assert.equal(h.nodes['plug-details'].children[0].children[1].textContent, '24h · — active · —');
+    assert.equal(h.nodes['plug-details'].children[0].children[1].textContent, '— active in selected range');
 });
 
 test('a single observation does not claim a run duration', async () => {

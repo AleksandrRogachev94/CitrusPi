@@ -116,7 +116,7 @@ plug failures do not block temperature monitoring. With no plugs configured, the
 dashboard is unchanged and the Kasa dependency is not required. Normal `--mock` mode
 pauses all plug polling and labels the equipment section accordingly.
 
-Equipment cards distinguish **plug enabled** from **equipment active**, inferred
+Equipment rows show **equipment active** or idle, inferred
 from measured watts. Tune `active_watts` and `idle_watts` to the observed heater/light
 loads. Initial activity is detected immediately outside the threshold band; subsequent
 changes require two consecutive observations, with hysteresis between the thresholds.
@@ -129,21 +129,21 @@ duration. Select or focus a period to see its start, end and estimated duration.
 Lane totals follow the selected range; expandable active-period lists show the latest
 20 observed periods per device. Gaps are excluded and boundary periods are clipped
 to the selected range. Activity remains visible without temperature readings. AI findings stay
-collapsed beneath their summary. Equipment cards show current state, watts and the
-plug's daily energy counter; expandable details contain watts history and usage estimates.
-Readings persist in SQLite alongside existing sensor history. Rolling 24h runtime,
+collapsed beneath their summary. The equipment table places live watts, selected-range
+energy (kWh), and estimated cost side by side for each plug and a total row. Energy
+cells show data coverage. Expand the runtime and power history for supporting details.
+Readings persist in SQLite alongside existing sensor history. Selected-range runtime,
 duty cycle and energy are estimates from raw observations; intervals with missing
 endpoints or gaps longer than twice the polling period are excluded. Coverage makes
 partial collection visible, and no usage is extrapolated after the last sample.
 Runtime uses the preceding observed state; energy uses the average endpoint watts.
-The plug's own **today counter** is shown separately: it uses the device's day boundary,
-can reset, and is never summed into our rolling estimate. Detailed history starts when
+The plug's own daily counter is stored separately, but is not displayed or summed
+into the selected-range estimate because its day boundary can differ. Detailed history starts when
 CitrusPi begins collecting. This integration only observes; it adds no switching or
 automatic equipment alerts.
 
 The dashboard's **History range** applies to all charts, equipment runtime/energy,
-and estimated electricity costs. Live readings and the plug's **Today** counter
-remain current. Choose 1h–30d; the selection is remembered in your browser.
+and estimated electricity costs. The **Now (W)** column remains live. Choose 1h–30d; the selection is remembered in your browser.
 
 To estimate electricity cost, add the `electricity` section from
 `config.example.yaml` to `config.yaml` and restart CitrusPi. The example includes
@@ -158,7 +158,8 @@ must not overlap. `peak_weekdays` uses Monday=0 through Sunday=6. Listed
 `holidays` use off-peak instead of peak; maintain those dates as needed.
 
 The equipment section shows a combined cost for monitored plugs in the selected
-range, with each plug's cost and data coverage in the details. Missing intervals
+range, alongside each plug's cost and data coverage in the table. Totals with a
+missing plug value are labeled partial; entirely missing values stay unknown. Missing intervals
 are excluded, so partial coverage produces a partial estimate, never a projection.
 Rates are applied across interval boundaries using the same interpolated watts
 as the energy estimate. All history uses the **current configured rates**; changing
