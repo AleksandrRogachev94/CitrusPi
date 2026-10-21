@@ -1,6 +1,9 @@
 """Tests for sensor hub, DS18B20 1-Wire probe, and strict mock mode."""
 
+import struct
 from pathlib import Path
+
+import pytest
 
 from citruspi.config import Config
 from citruspi.sensors import _DS18B20, SensorHub
@@ -209,6 +212,7 @@ def test_bme280_calibration_sign_extension() -> None:
 
     def mock_rb(addr: int, reg: int, n: int) -> list[int]:
         calib_data = {
+            0xD0: [0x60],
             0x88: [0] * 26,  # CALIB_T_P
             0xA1: [75],      # DIG_H1
             0xE1: [0, 0, 0, 0xF0, 0x35, 0x80, 0],  # CALIB_H
@@ -219,6 +223,128 @@ def test_bme280_calibration_sign_extension() -> None:
     bme = _BME280(mock_bus, 0x76)
     assert bme._cal["H4"] == -251
     assert bme._cal["H5"] == -2045
+
+
+class _ConversionBus:
+    """Emulate reset values remaining visible until a conversion finishes."""
+
+    def __init__(self) -> None:
+        self.chip_id = 0x60
+        self.statuses: list[int] = []
+        self.writes: list[tuple[int, int]] = []
+        self.events: list[tuple[str, int]] = []
+        self.pending = False
+        self.stuck_conversion = False
+        self.raw_temperature = 519888
+        self.raw_pressure = 415148
+        self.raw_humidity = 35000
+        self.data = [0x80, 0, 0, 0x80, 0, 0, 0x80, 0]
+
+    def write_byte_data(self, addr: int, reg: int, value: int) -> None:
+        self.writes.append((reg, value))
+        if reg == 0xE0:
+            self.statuses = [1, 1, 0]
+        elif reg == 0xF4 and value & 0x03:
+            self.pending = True
+            self.statuses = [0x09, 0x08, 0]
+
+    def read_i2c_block_data(self, addr: int, reg: int, length: int) -> list[int]:
+        self.events.append(("read", reg))
+        if reg == 0xD0:
+            return [self.chip_id]
+        if reg == 0xF3:
+            if self.pending and self.stuck_conversion:
+                return [0x08]
+            status = self.statuses.pop(0) if self.statuses else 0
+            if status == 0 and self.pending:
+                self.pending = False
+                p, t, h = self.raw_pressure, self.raw_temperature, self.raw_humidity
+                self.data = [
+                    p >> 12, (p >> 4) & 0xFF, (p & 0x0F) << 4,
+                    t >> 12, (t >> 4) & 0xFF, (t & 0x0F) << 4,
+                    h >> 8, h & 0xFF,
+                ]
+            return [status]
+        if reg in (0x88, 0xA1, 0xE1):
+            assert not self.statuses, "Calibration read before NVM copy completed"
+            # Bosch temperature/pressure example coefficients.
+            calibration = {
+                0x88: list(struct.pack(
+                    "<HhhHhhhhhhhhBB", 27504, 26435, -1000, 36477,
+                    -10685, 3024, 2855, 140, -7, 15500, -14600, 6000, 0, 75,
+                )),
+                0xA1: [75],
+                0xE1: [0x6A, 0x01, 0, 0x14, 0x25, 0x03, 30],
+            }
+            return calibration[reg]
+        if reg == 0xF7:
+            return self.data
+        raise AssertionError(f"Unexpected register 0x{reg:02X}")
+
+
+@pytest.fixture
+def conversion_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    now = [0.0]
+
+    def advance(seconds: float) -> None:
+        now[0] += seconds
+
+    monkeypatch.setattr("citruspi.sensors.time.sleep", advance)
+    monkeypatch.setattr("citruspi.sensors.time.monotonic", lambda: now[0])
+
+
+def test_bme280_first_read_waits_for_fresh_conversion(conversion_clock: None) -> None:
+    from citruspi.sensors import _BME280
+
+    bus = _ConversionBus()
+    bme = _BME280(bus, 0x76)
+    # Construction must not leave a conversion running into the first read.
+    assert not bus.pending
+    assert (0xF4, 0x25) not in bus.writes
+    assert (0xF4, 0x24) in bus.writes
+
+    first = bme.read()
+    assert first["temp_c"] == 25.08
+    assert first["pressure"] == 1006.53
+    assert 0 < first["humidity"] < 100
+    assert not bus.pending
+
+    bus.raw_temperature = 500000
+    second = bme.read()
+    assert second["temp_c"] != first["temp_c"]
+    assert bus.writes.count((0xF4, 0x25)) == 2
+
+
+def test_bme280_conversion_timeout_does_not_read_stale_data(conversion_clock: None) -> None:
+    from citruspi.sensors import _BME280
+
+    bus = _ConversionBus()
+    bme = _BME280(bus, 0x76)
+    bus.stuck_conversion = True
+    with pytest.raises(TimeoutError, match="did not finish"):
+        bme.read()
+    assert ("read", 0xF7) not in bus.events
+
+
+@pytest.mark.parametrize("channel", ["temperature", "pressure", "humidity"])
+def test_bme280_rejects_reset_measurements(channel: str, conversion_clock: None) -> None:
+    from citruspi.sensors import _BME280
+
+    bus = _ConversionBus()
+    setattr(bus, f"raw_{channel}", 0x8000 if channel == "humidity" else 0x80000)
+    bme = _BME280(bus, 0x76)
+    with pytest.raises(ValueError, match="reset/skipped measurement"):
+        bme.read()
+
+
+def test_bme280_rejects_bmp280_before_configuration(conversion_clock: None) -> None:
+    from citruspi.sensors import _BME280
+
+    bus = _ConversionBus()
+    bus.chip_id = 0x58
+    with pytest.raises(ValueError, match="Expected BME280 chip ID"):
+        _BME280(bus, 0x76)
+    assert bus.writes == []
 
 
 def test_sensorhub_bme_read_error_closes_bus(tmp_path: Path) -> None:

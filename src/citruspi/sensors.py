@@ -68,7 +68,9 @@ class _BME280:
     """Minimal BME280 driver (smbus2)."""
 
     _REG_ID = 0xD0
+    _REG_RESET = 0xE0
     _REG_CTRL_HUM = 0xF2
+    _REG_STATUS = 0xF3
     _REG_CTRL_MEAS = 0xF4
     _REG_CONFIG = 0xF5
     _REG_DATA = 0xF7
@@ -80,6 +82,13 @@ class _BME280:
         self._bus = bus
         self._addr = address
         self._cal: dict[str, int] = {}
+        chip_id = self._rb(self._REG_ID, 1)[0]
+        if chip_id != 0x60:
+            raise ValueError(f"Expected BME280 chip ID 0x60, got 0x{chip_id:02X}")
+        # Clear settings left by a previous process and wait for calibration NVM.
+        self._wb(self._REG_RESET, 0xB6)
+        time.sleep(0.003)
+        self._wait_ready()
         self._load_calibration()
         self._configure()
 
@@ -88,6 +97,14 @@ class _BME280:
 
     def _wb(self, reg: int, val: int) -> None:
         self._bus.write_byte_data(self._addr, reg, val)
+
+    def _wait_ready(self) -> None:
+        deadline = time.monotonic() + 0.25
+        # Bit 3: conversion running; bit 0: calibration NVM copy running.
+        while self._rb(self._REG_STATUS, 1)[0] & 0x09:
+            if time.monotonic() >= deadline:
+                raise TimeoutError("BME280 did not finish conversion or calibration copy")
+            time.sleep(0.002)
 
     def _load_calibration(self) -> None:
         tp = self._rb(self._REG_CALIB_T_P, 26)
@@ -121,15 +138,26 @@ class _BME280:
     def _configure(self) -> None:
         self._wb(self._REG_CTRL_HUM, 0x01)
         self._wb(self._REG_CONFIG, 0x00)
-        self._wb(self._REG_CTRL_MEAS, 0x25)
+        # Latch humidity settings with temperature/pressure x1, staying asleep.
+        # Only read() starts a conversion.
+        self._wb(self._REG_CTRL_MEAS, 0x24)
 
     def read(self) -> dict[str, float]:
         self._wb(self._REG_CTRL_MEAS, 0x25)
+        # Allow conversion to start and exceed the x1 conversion time before
+        # polling; an immediate status read can still report the previous idle state.
         time.sleep(0.05)
+        self._wait_ready()
         raw = self._rb(self._REG_DATA, 8)
         raw_p = (raw[0] << 12) | (raw[1] << 4) | (raw[2] >> 4)
         raw_t = (raw[3] << 12) | (raw[4] << 4) | (raw[5] >> 4)
         raw_h = (raw[6] << 8) | raw[7]
+        if raw_t == 0x80000 or raw_p == 0x80000 or raw_h == 0x8000:
+            raise ValueError(
+                "BME280 returned reset/skipped measurement data "
+                f"(temperature=0x{raw_t:05X}, pressure=0x{raw_p:05X}, "
+                f"humidity=0x{raw_h:04X})"
+            )
 
         c = self._cal
         v1 = (raw_t / 16384.0 - c["T1"] / 1024.0) * c["T2"]
