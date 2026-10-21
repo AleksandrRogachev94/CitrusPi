@@ -1208,6 +1208,18 @@ canvas {
 .equipment-table tfoot td:last-child { padding-right: 0.75rem; }
 .equipment-table .metric-value { font-size: 1.15rem; font-weight: 600; white-space: nowrap; }
 .equipment-table .metric-note { display: block; margin-top: 0.2rem; color: var(--text-muted); font-size: 0.7rem; font-weight: 400; }
+@media (max-width: 480px) {
+    .equipment-section { padding: 1rem 0.85rem; }
+    .equipment-table th, .equipment-table td { padding: 0.75rem 0.3rem; }
+    .equipment-table thead th { font-size: 0.7rem; white-space: normal; }
+    .equipment-table thead th .muted { display: block; }
+    .equipment-table .metric-value { font-size: 1rem; white-space: normal; overflow-wrap: anywhere; }
+    .equipment-table .metric-note { font-size: 0.65rem; }
+    .equipment-table .plug-name { font-size: 0.85rem; overflow-wrap: anywhere; }
+    .equipment-table .plug-state { font-size: 0.7rem; overflow-wrap: anywhere; }
+    .equipment-table tfoot th:first-child { padding-left: 0.3rem; }
+    .equipment-table tfoot td:last-child { padding-right: 0.3rem; }
+}
 .equipment-estimate-note { margin-top: 0.75rem; line-height: 1.5; }
 .plug-heading p, .plug-usage p { margin: 0.3rem 0; }
 .plug-name { font-weight: 600; }
