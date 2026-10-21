@@ -38,6 +38,42 @@ plugs: []
 kasa_username: ""
 kasa_password: ""
 
+# Optional electricity estimate for monitored plugs (USD per kWh).
+# PECO residential TOU supply + transmission: June 1–November 30, 2026.
+# Source: https://azure-na-assets.contentstack.com/v3/assets/blt1b5616c79bacadb4/bltf7c1eb06cdfe6ab9/6a0e7050df378b4731251e82/2026_RESIDENTIAL_Final_Electric_PTC_Effective_06-01-2026.pdf
+# Verify against your bill; update rates when PECO changes them, then restart.
+# PECO Rate R variable delivery: $0.10236/kWh, effective July 1, 2026.
+# Delivery source: https://azure-na-assets.contentstack.com/v3/assets/blt1b5616c79bacadb4/bltef2bb157cc587eac/6a4541d70d15ec68610f09eb/Rate_R_from_clean_up_FARS_ICUS_Supp_no._32_Effective_July_1_2026.pdf
+# delivery_rate adds the same variable delivery charge to every kWh.
+# Set to 0 for supply only. Fixed monthly fees and other bill adjustments are excluded.
+# Remove this section (or set electricity: null) to disable cost estimates.
+electricity:
+  timezone: America/New_York
+  peak_rate: 0.32404
+  off_peak_rate: 0.09336
+  super_off_peak_rate: 0.06741
+  delivery_rate: 0.10236
+  peak_start_hour: 14
+  peak_end_hour: 18
+  super_off_peak_start_hour: 0
+  super_off_peak_end_hour: 6
+  peak_weekdays: [0, 1, 2, 3, 4]  # Monday=0; weekends use off-peak/overnight rates
+  # PJM holidays: off-peak during the usual peak window. Maintain dates as needed.
+  holidays:
+    - "2026-01-01"
+    - "2026-05-25"
+    - "2026-07-04"
+    - "2026-09-07"
+    - "2026-11-26"
+    - "2026-12-25"
+    - "2027-01-01"
+    - "2027-05-31"
+    - "2027-07-04"
+    - "2027-07-05"
+    - "2027-09-06"
+    - "2027-11-25"
+    - "2027-12-25"
+
 # Camera settings (1920x1080 default for Logitech C930e with hardware MJPG)
 camera_device: "/dev/video0"
 camera_device_index: 0

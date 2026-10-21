@@ -6,12 +6,61 @@ import math
 import os
 import re
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+@dataclass(frozen=True)
+class ElectricityConfig:
+    """USD/kWh and local-hour windows; off-peak covers all remaining hours."""
+
+    timezone: str = "America/New_York"
+    peak_rate: float = 0.32404
+    off_peak_rate: float = 0.09336
+    super_off_peak_rate: float = 0.06741
+    delivery_rate: float = 0.0
+    peak_start_hour: int = 14
+    peak_end_hour: int = 18
+    super_off_peak_start_hour: int = 0
+    super_off_peak_end_hour: int = 6
+    peak_weekdays: list[int] = field(default_factory=lambda: [0, 1, 2, 3, 4])
+    holidays: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        try:
+            ZoneInfo(self.timezone)
+        except (TypeError, ValueError, ZoneInfoNotFoundError) as exc:
+            raise ValueError("electricity.timezone must be a valid timezone") from exc
+        for key in ("peak_rate", "off_peak_rate", "super_off_peak_rate", "delivery_rate"):
+            value = getattr(self, key)
+            if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+                raise ValueError(f"electricity.{key} must be a finite nonnegative USD/kWh rate")
+        for prefix in ("peak", "super_off_peak"):
+            start, end = (getattr(self, f"{prefix}_{edge}_hour") for edge in ("start", "end"))
+            if type(start) is not int or type(end) is not int or not 0 <= start < end <= 24:
+                raise ValueError(f"electricity.{prefix} hours must satisfy 0 <= start < end <= 24")
+        if not isinstance(self.peak_weekdays, list) or any(
+            type(day) is not int or not 0 <= day <= 6 for day in self.peak_weekdays
+        ):
+            raise ValueError("electricity.peak_weekdays must be a list of weekdays (Monday=0)")
+        if max(self.peak_start_hour, self.super_off_peak_start_hour) < min(
+            self.peak_end_hour, self.super_off_peak_end_hour
+        ):
+            raise ValueError("electricity peak and super off-peak windows must not overlap")
+        if not isinstance(self.holidays, list):
+            raise ValueError("electricity.holidays must be a list of YYYY-MM-DD strings")
+        for day in self.holidays:
+            try:
+                if not isinstance(day, str) or date.fromisoformat(day).isoformat() != day:
+                    raise ValueError
+            except ValueError as exc:
+                raise ValueError("electricity.holidays must contain YYYY-MM-DD strings") from exc
 
 
 @dataclass(frozen=True)
@@ -54,6 +103,7 @@ class Config:
     plug_poll_interval_sec: int = 60
     kasa_username: str = field(default="", repr=False)
     kasa_password: str = field(default="", repr=False)
+    electricity: ElectricityConfig | None = None
 
     # ── Camera & Photoperiod ──────────────────────────────────────────
     camera_device: str = "/dev/video0"
@@ -141,6 +191,13 @@ class Config:
             raise ValueError("Plug hosts must be unique")
         if not isinstance(self.kasa_username, str) or not isinstance(self.kasa_password, str):
             raise ValueError("Kasa credentials must be strings")
+        if self.electricity is not None and not isinstance(self.electricity, ElectricityConfig):
+            if not isinstance(self.electricity, dict):
+                raise ValueError("electricity must be a mapping of rates and hours")
+            try:
+                self.electricity = ElectricityConfig(**self.electricity)
+            except TypeError as exc:
+                raise ValueError("Invalid electricity settings") from exc
 
         if isinstance(self.w1_devices_dir, str):
             self.w1_devices_dir = Path(self.w1_devices_dir)

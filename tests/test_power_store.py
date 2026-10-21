@@ -58,7 +58,7 @@ def test_no_measurements_are_unknown_not_zero(tmp_path):
     store = Store(tmp_path)
     assert store.latest_power("missing") is None
     summary = store.power_summary("missing", 60)
-    assert summary == {"estimated_kwh": None, "runtime_hours": None,
+    assert summary == {"estimated_kwh": None, "estimated_cost_usd": None, "runtime_hours": None,
                        "duty_cycle_pct": None, "coverage_pct": 0}
     assert store.power_history("missing") == []
 

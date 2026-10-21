@@ -23,7 +23,7 @@ const plug = overrides => ({
     ...overrides,
 });
 
-function harness() {
+function harness(electricity = false) {
     function element() {
         return {
             children: [], dataset: {}, textContent: '', className: '', open: false, hidden: false,
@@ -45,9 +45,10 @@ function harness() {
     const nodes = Object.fromEntries(['plug-cards', 'plug-details', 'power-details',
         'power-chart-status', 'powerChart', 'activityChart', 'activity-chart-status',
         'activity-history-note', 'activity-selection', 'activity-periods', 'equipment-lanes'].map(id => [id, element()]));
+    if (electricity) nodes['electricity-cost'] = element();
     const intervals = {};
     const charts = [];
-    let respond = async url => url === '/api/plugs' ? [plug()] : url.startsWith('/api/plugs/history') ? [series()] : [];
+    let respond = async url => url.startsWith('/api/plugs?') ? [plug()] : url.startsWith('/api/plugs/history') ? [series()] : [];
     const context = vm.createContext({
         document: { getElementById: id => nodes[id], createElement: element },
         fetch: async url => ({ ok: true, json: () => respond(url) }),
@@ -71,6 +72,48 @@ function harness() {
     };
 }
 const flush = () => new Promise(resolve => setImmediate(resolve));
+
+test('global range drives usage and combined costs; missing data never becomes free', async () => {
+    const h = harness(true);
+    await flush();
+    const requests = [];
+    h.respond(async url => {
+        requests.push(url);
+        if (url.startsWith('/api/plugs?')) return [
+            plug({ summary: { estimated_cost_usd: 1.25, estimated_kwh: 3, runtime_hours: 1, coverage_pct: 50 } }),
+            plug({ summary: { estimated_cost_usd: 0 } }),
+            plug({ summary: { estimated_cost_usd: null } }),
+        ];
+        return [];
+    });
+    await h.context.window.loadPowerChart(168);
+    await flush();
+    assert.ok(requests.includes('/api/plugs?hours=168'));
+    assert.ok(requests.includes('/api/plugs/history?hours=168'));
+    assert.equal(h.nodes['electricity-cost'].textContent, 'Estimated electricity total (7d): ~$1.25 · incomplete plug data');
+    assert.match(h.nodes['plug-details'].children[0].children[1].textContent, /^7d/);
+    h.respond(async url => url.startsWith('/api/plugs?') ? [plug({ summary: { estimated_cost_usd: null } })] : []);
+    await h.context.window.loadPowerChart(1);
+    await flush();
+    assert.match(h.nodes['electricity-cost'].textContent, /\(1h\): —/);
+    h.respond(async () => { throw new Error('offline'); });
+    await h.intervals[30000]();
+    assert.equal(h.nodes['electricity-cost'].textContent, 'Electricity estimate unavailable.');
+});
+
+test('a late cost response cannot replace the newly selected range', async () => {
+    const h = harness(true);
+    await flush();
+    let release;
+    h.respond(url => url === '/api/plugs?hours=24' ? new Promise(resolve => { release = resolve; }) : []);
+    await h.context.window.loadPowerChart(24);
+    h.respond(async url => url.startsWith('/api/plugs?') ? [plug({ summary: { estimated_cost_usd: 0 } })] : []);
+    await h.context.window.loadPowerChart(72);
+    await flush();
+    release([plug({ summary: { estimated_cost_usd: 999 } })]);
+    await flush();
+    assert.equal(h.nodes['electricity-cost'].textContent, 'Estimated electricity total (3d): ~$0.00');
+});
 
 test('compact cards distinguish enabled relay from idle; usage details are separate', async () => {
     const h = harness();
@@ -134,7 +177,7 @@ test('power chart renders only when opened and excludes duplicate temperature ax
     assert.equal(chart.data.datasets[0].pointRadius, 0);
     assert.equal(chart.data.datasets[0].pointHoverRadius, 4);
     assert.equal(chart.data.datasets.length, 1);
-    assert.equal(chart.options.scales.y.title.text, 'Watts');
+    assert.equal(chart.options.scales.y.title, undefined);
     await h.context.window.loadPowerChart(72);
     assert.equal(h.charts.at(-1).config.options.scales.x.time.unit, 'day');
 });

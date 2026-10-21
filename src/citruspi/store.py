@@ -19,6 +19,8 @@ from math import ceil
 from pathlib import Path
 from typing import Any
 
+from citruspi.config import ElectricityConfig
+from citruspi.electricity import interval_cost
 from citruspi.models import PowerReading, Reading
 
 logger = logging.getLogger(__name__)
@@ -320,14 +322,16 @@ class Store:
 
     def power_summary(
         self, plug_id: str, poll_interval: int, now: datetime | None = None,
+        *, electricity: ElectricityConfig | None = None, hours: int = 24,
     ) -> dict[str, Any]:
-        """Estimate rolling 24h energy/runtime from raw samples, excluding gaps.
+        """Estimate energy/runtime/cost from raw samples, excluding gaps.
 
         Device 'today' counters are stored separately: never sum them, since they
         reset at the device's local midnight. Do not extrapolate after the last sample.
+        The selected window is priced using the current configured rates.
         """
         end = now or datetime.now(UTC)
-        start = end - timedelta(hours=24)
+        start = end - timedelta(hours=hours)
         max_gap = poll_interval * 2
         cursor = self._get_conn().execute(
             """SELECT timestamp, power_w, active FROM power_readings
@@ -336,28 +340,38 @@ class Store:
             (plug_id, (start - timedelta(seconds=max_gap)).strftime('%Y-%m-%dT%H:%M:%SZ'),
              end.strftime('%Y-%m-%dT%H:%M:%SZ')),
         )
-        energy = observed = runtime = activity_observed = 0.0
+        energy = observed = runtime = activity_observed = cost = 0.0
         previous = None
         for row in cursor:
             time = datetime.fromisoformat(row["timestamp"])
             if previous is not None:
                 prev_time, prev = previous
                 gap = (time - prev_time).total_seconds()
-                seconds = (min(time, end) - max(prev_time, start)).total_seconds()
+                left = max(prev_time, start)
+                seconds = (time - left).total_seconds()
                 if 0 < gap <= max_gap and seconds > 0:
                     if prev["power_w"] is not None and row["power_w"] is not None:
-                        energy += (prev["power_w"] + row["power_w"]) / 2 * seconds / 3_600_000
+                        left_watts = prev["power_w"] + (
+                            row["power_w"] - prev["power_w"]
+                        ) * (left - prev_time).total_seconds() / gap
+                        energy += (left_watts + row["power_w"]) / 2 * seconds / 3_600_000
+                        if electricity is not None:
+                            cost += interval_cost(
+                                left, time, left_watts, row["power_w"], electricity,
+                            )
                         observed += seconds
                     if prev["active"] is not None and row["active"] is not None:
                         activity_observed += seconds
                         runtime += seconds if prev["active"] else 0
             previous = time, row
+        span = (end - start).total_seconds()
         return {
             "estimated_kwh": round(energy, 4) if observed else None,
+            "estimated_cost_usd": round(cost, 4) if observed and electricity else None,
             "runtime_hours": round(runtime / 3600, 2) if activity_observed else None,
             "duty_cycle_pct": round(runtime / activity_observed * 100, 1)
                 if activity_observed else None,
-            "coverage_pct": round(observed / 86400 * 100, 1),
+            "coverage_pct": round(observed / span * 100, 1) if span > 0 else 0,
         }
 
     def latest(self) -> dict[str, Any] | None:

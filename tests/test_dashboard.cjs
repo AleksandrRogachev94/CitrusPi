@@ -71,6 +71,19 @@ const reading = {
     timestamp: new Date().toISOString(), temp_f: 60, root_temp_f: 58, humidity: 65, vpd_kpa: 0.5,
 };
 
+test('global range updates climate and equipment together and remembers selection', async () => {
+    const p = page('dashboard.html');
+    p.run('window.loadPowerChart = (hours, bounds) => { window.equipmentRange = { hours, bounds }; };');
+    let requested;
+    p.fetch(async url => { requested = url; return { ok: true, json: async () => [reading] }; });
+    p.run('setChartRange(168)');
+    await p.run('Promise.resolve()');
+    assert.equal(requested, '/api/history?hours=168');
+    assert.equal(p.run('window.equipmentRange.hours'), 168);
+    assert.equal(p.run('window.equipmentRange.bounds.end - window.equipmentRange.bounds.start'), 168 * 3600000);
+    assert.equal(p.storage.get('citruspi-chart-range'), 168);
+});
+
 test('camera expands inside the page when native fullscreen is unavailable', async () => {
     const p = page('dashboard.html');
     await p.run('toggleCameraFullscreen()');

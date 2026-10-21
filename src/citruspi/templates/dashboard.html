@@ -17,6 +17,21 @@
     {% include "_readings.html" %}
 </div>
 
+<section class="card history-range" aria-label="Dashboard history">
+    <div>
+        <h2>History range</h2>
+        <p class="muted small">All charts, equipment usage &amp; electricity costs. Live readings stay current.</p>
+    </div>
+    <div class="range-selector" role="group" aria-label="Dashboard history range">
+        <button type="button" class="range-btn" data-hours="1" onclick="setChartRange(1)">1h</button>
+        <button type="button" class="range-btn active" data-hours="24" onclick="setChartRange(24)">24h</button>
+        <button type="button" class="range-btn" data-hours="72" onclick="setChartRange(72)">3d</button>
+        <button type="button" class="range-btn" data-hours="168" onclick="setChartRange(168)">7d</button>
+        <button type="button" class="range-btn" data-hours="336" onclick="setChartRange(336)">14d</button>
+        <button type="button" class="range-btn" data-hours="720" onclick="setChartRange(720)">30d</button>
+    </div>
+</section>
+
 <!-- Main 2-Column Desktop Grid (Zero-scroll, side-by-side) -->
 <div class="dashboard-grid">
 
@@ -95,14 +110,7 @@
         <section class="card chart-card timeline-card">
             <div class="card-header-compact history-header">
                 <h2>{% if config.plugs %}Temperature &amp; Equipment{% else %}🌡️ Thermal Balance{% endif %}</h2>
-                <div class="range-selector" role="group" aria-label="Chart time range">
-                    <button type="button" class="range-btn" data-hours="1" onclick="setChartRange(1)">1h</button>
-                    <button type="button" class="range-btn active" data-hours="24" onclick="setChartRange(24)">24h</button>
-                    <button type="button" class="range-btn" data-hours="72" onclick="setChartRange(72)">3d</button>
-                    <button type="button" class="range-btn" data-hours="168" onclick="setChartRange(168)">7d</button>
-                    <button type="button" class="range-btn" data-hours="336" onclick="setChartRange(336)">14d</button>
-                    <button type="button" class="range-btn" data-hours="720" onclick="setChartRange(720)">30d</button>
-                </div>
+
             </div>
             {% if config.plugs %}
             <div class="timeline-wrapper">
@@ -152,10 +160,16 @@
     <div id="plug-cards" class="plug-cards" aria-live="polite">
         <p class="muted small">Loading equipment…</p>
     </div>
+    {% if config.electricity %}
+    <p id="electricity-cost" aria-live="polite">Loading electricity estimate…</p>
+    <p class="muted small">Monitored plugs only · gaps excluded · current configured rates.
+        {% if config.electricity.delivery_rate == 0 %}Supply only; delivery charges excluded.{% else %}Includes configured delivery rate.{% endif %}
+        Fixed fees and other bill charges excluded.</p>
+    {% endif %}
     <details id="power-details" class="power-details">
         <summary>Power &amp; energy details</summary>
         <div id="plug-details" class="plug-cards"></div>
-        <p class="muted small">24h estimates exclude gaps. Today is the plug’s daily total.</p>
+        <p class="muted small">Usage and cost follow the history range above and exclude gaps. Today is the plug’s daily total.</p>
         <p id="power-chart-status" class="muted small" role="status"></p>
         <div class="chart-wrapper"><canvas id="powerChart" role="img" aria-label="Equipment power history in watts"></canvas></div>
     </details>
@@ -339,6 +353,7 @@ function updateRangeUI(hours) {
     document.querySelectorAll('.range-btn').forEach(btn => {
         const btnHours = parseInt(btn.getAttribute('data-hours'), 10);
         btn.classList.toggle('active', btnHours === hours);
+        btn.setAttribute('aria-pressed', String(btnHours === hours));
     });
 }
 
@@ -450,7 +465,8 @@ async function loadCharts(hours = currentRangeHours) {
                         labels: {
                             color: theme.textColor,
                             usePointStyle: true,
-                            boxWidth: 8,
+                            boxWidth: 12,
+                            boxHeight: 8,
                             padding: 16,
                             font: { size: 11, weight: '500' }
                         },
@@ -467,19 +483,19 @@ async function loadCharts(hours = currentRangeHours) {
                     },
                     yTemp: {
                         position: 'left',
-                        title: { display: true, text: '°F', color: theme.textColor, font: { size: 10 } },
                         suggestedMin: 45,
                         suggestedMax: 75,
-                        grid: { color: theme.gridColor },
-                        ticks: { color: theme.textColor, font: { size: 10 } },
+                        grid: { color: theme.gridColor, tickLength: 0 },
+                        ticks: { color: theme.textColor, padding: 2, font: { size: 10 } },
+                        border: { display: false },
                     },
                     yHum: {
                         position: 'right',
-                        title: { display: true, text: '%RH', color: theme.textColor, font: { size: 10 } },
                         suggestedMin: 30,
                         suggestedMax: 90,
-                        grid: { display: false },
-                        ticks: { color: theme.textColor, font: { size: 10 } },
+                        grid: { display: false, tickLength: 0 },
+                        ticks: { color: theme.textColor, padding: 2, font: { size: 10 } },
+                        border: { display: false },
                     },
                     yVpd: {
                         position: 'right',
@@ -535,7 +551,8 @@ async function loadCharts(hours = currentRangeHours) {
                         labels: {
                             color: theme.textColor,
                             usePointStyle: true,
-                            boxWidth: 8,
+                            boxWidth: 12,
+                            boxHeight: 8,
                             padding: 16,
                             font: { size: 11, weight: '500' },
                         },
@@ -552,11 +569,11 @@ async function loadCharts(hours = currentRangeHours) {
                     },
                     y: {
                         position: 'left',
-                        title: { display: true, text: '°F', color: theme.textColor, font: { size: 10 } },
                         suggestedMin: 40,
                         suggestedMax: 75,
-                        grid: { color: theme.gridColor },
-                        ticks: { color: theme.textColor, font: { size: 10 } },
+                        grid: { color: theme.gridColor, tickLength: 0 },
+                        ticks: { color: theme.textColor, padding: 2, font: { size: 10 } },
+                        border: { display: false },
                     },
                 },
             },

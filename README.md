@@ -141,6 +141,36 @@ can reset, and is never summed into our rolling estimate. Detailed history start
 CitrusPi begins collecting. This integration only observes; it adds no switching or
 automatic equipment alerts.
 
+The dashboard's **History range** applies to all charts, equipment runtime/energy,
+and estimated electricity costs. Live readings and the plug's **Today** counter
+remain current. Choose 1h–30d; the selection is remembered in your browser.
+
+To estimate electricity cost, add the `electricity` section from
+`config.example.yaml` to `config.yaml` and restart CitrusPi. The example includes
+PECO residential TOU supply + transmission rates for June 1–November 30, 2026:
+`peak_rate: 0.32404`, `off_peak_rate: 0.09336`, and
+`super_off_peak_rate: 0.06741`, in **dollars per kWh**. See
+[PECO's published rate table](https://azure-na-assets.contentstack.com/v3/assets/blt1b5616c79bacadb4/bltf7c1eb06cdfe6ab9/6a0e7050df378b4731251e82/2026_RESIDENTIAL_Final_Electric_PTC_Effective_06-01-2026.pdf).
+Peak defaults to weekdays 14:00–18:00, overnight to 00:00–06:00 every day,
+and off-peak to all remaining hours, using `America/New_York` (including DST).
+Hours are start-inclusive/end-exclusive; windows must stay within one day and
+must not overlap. `peak_weekdays` uses Monday=0 through Sunday=6. Listed
+`holidays` use off-peak instead of peak; maintain those dates as needed.
+
+The equipment section shows a combined cost for monitored plugs in the selected
+range, with each plug's cost and data coverage in the details. Missing intervals
+are excluded, so partial coverage produces a partial estimate, never a projection.
+Rates are applied across interval boundaries using the same interpolated watts
+as the energy estimate. All history uses the **current configured rates**; changing
+rates recalculates the estimate. No billing records or rate history are maintained.
+The example also includes `delivery_rate: 0.10236` USD/kWh, PECO's Rate R
+variable distribution charge effective July 1, 2026, from
+[PECO's residential tariff](https://azure-na-assets.contentstack.com/v3/assets/blt1b5616c79bacadb4/bltef2bb157cc587eac/6a4541d70d15ec68610f09eb/Rate_R_from_clean_up_FARS_ICUS_Supp_no._32_Effective_July_1_2026.pdf).
+This adds the same delivery charge to each kWh, giving supply + transmission +
+variable delivery estimates. Set it to `0` for supply only. Fixed monthly fees
+and other bill adjustments are excluded. Verify rates against your bill and update them when PECO changes
+them. Remove `electricity` or set it to `null` to hide cost estimates.
+
 ## MicroSD Card Protection (`log2ram`)
 
 Raspberry Pi OS writes constant syslog data to disk, which wears out consumer microSD cards over multi-month deployments.

@@ -1,6 +1,7 @@
 // Read-only equipment status and history. User-configured names stay text, never HTML.
 (() => {
     const cards = document.getElementById('plug-cards');
+    const electricityCost = document.getElementById('electricity-cost');
     const details = document.getElementById('power-details');
     const lanes = document.getElementById('equipment-lanes');
     const activityStatus = document.getElementById('activity-chart-status');
@@ -11,6 +12,7 @@
     let history = null;
     let historyRequest = 0;
     let cardRequest = 0;
+    let summaryHours = null;
 
     async function getJSON(url) {
         const response = await fetch(url);
@@ -27,6 +29,15 @@
 
     function format(value, digits, suffix) {
         return Number.isFinite(value) ? value.toFixed(digits) + suffix : '—';
+    }
+
+    function money(value) {
+        return Number.isFinite(value) ? `~$${value.toFixed(2)}` : '—';
+    }
+
+    function totalCost(plugs) {
+        const values = plugs.map(p => p.summary.estimated_cost_usd).filter(Number.isFinite);
+        return values.length ? money(values.reduce((sum, value) => sum + value, 0)) : '—';
     }
 
     function duration(ms) {
@@ -62,10 +73,15 @@
         }
     }
 
-    async function refreshCards() {
+    async function refreshCards(hours = currentRangeHours) {
         const current = ++cardRequest;
+        if (summaryHours !== hours) {
+            summaryHours = hours;
+            document.getElementById('plug-details').replaceChildren();
+            if (electricityCost) electricityCost.textContent = 'Loading electricity estimate…';
+        }
         try {
-            const plugs = await getJSON('/api/plugs');
+            const plugs = await getJSON(`/api/plugs?hours=${hours}`);
             if (current !== cardRequest) return;
             const usage = [];
             const nodes = plugs.map(plug => {
@@ -91,7 +107,11 @@
                 const summary = plug.summary;
                 const runtime = summary.runtime_hours == null ? '—' : duration(summary.runtime_hours * 3600000);
                 const energy = summary.estimated_kwh == null ? '—' : `~${format(summary.estimated_kwh, 3, ' kWh')}`;
-                report.appendChild(element('p', 'small', `24h · ${runtime} active · ${energy}`));
+                const range = hours <= 24 ? `${hours}h` : `${hours / 24}d`;
+                report.appendChild(element('p', 'small', `${range} · ${runtime} active · ${energy}`));
+                if (electricityCost) {
+                    report.appendChild(element('p', 'small', `Estimated cost: ${money(summary.estimated_cost_usd)}`));
+                }
                 report.appendChild(element('p', 'muted small', `${format(summary.coverage_pct, 0, '% data coverage')}`));
                 // The timestamp makes this a historical observation, not a second live claim.
                 if (latest) {
@@ -103,10 +123,18 @@
             });
             cards.replaceChildren(...nodes);
             document.getElementById('plug-details').replaceChildren(...usage);
+            if (electricityCost) {
+                const range = hours <= 24 ? `${hours}h` : `${hours / 24}d`;
+                electricityCost.textContent = `Estimated electricity total (${range}): ${totalCost(plugs)}`;
+                if (plugs.some(p => p.summary.estimated_cost_usd == null)) {
+                    electricityCost.textContent += ' · incomplete plug data';
+                }
+            }
         } catch (_) {
             if (current !== cardRequest) return;
             cards.replaceChildren(element('p', 'muted small', 'Equipment data unavailable. Retrying shortly.'));
             document.getElementById('plug-details').replaceChildren();
+            if (electricityCost) electricityCost.textContent = 'Electricity estimate unavailable.';
         }
     }
 
@@ -187,7 +215,7 @@
         return {
             responsive: true, maintainAspectRatio: false,
             interaction: { intersect: false, mode: 'nearest', axis: 'x' },
-            plugins: { legend: { labels: { color: theme.textColor, usePointStyle: true, boxWidth: 8 } } },
+            plugins: { legend: { labels: { color: theme.textColor, usePointStyle: true, boxWidth: 12, boxHeight: 8, padding: 16 } } },
             scales: {
                 x: {
                     type: 'time', min: bounds.start, max: bounds.end,
@@ -197,7 +225,8 @@
                     grid: { display: false },
                     ticks: { color: theme.textColor, maxTicksLimit: 7, maxRotation: 0 },
                 },
-                y: { ticks: { color: theme.textColor }, grid: { color: theme.gridColor } },
+                y: { ticks: { color: theme.textColor, padding: 2, font: { size: 10 } },
+                    border: { display: false }, grid: { color: theme.gridColor, tickLength: 0 } },
             },
         };
     }
@@ -208,7 +237,6 @@
         if (powerChart) powerChart.destroy();
         const config = options(hours, bounds, theme);
         config.scales.y.min = 0;
-        config.scales.y.title = { display: true, text: 'Watts', color: theme.textColor };
         powerChart = new Chart(document.getElementById('powerChart').getContext('2d'), {
             type: 'line', options: config,
             data: { datasets: plugs.map(plug => ({
@@ -223,6 +251,7 @@
 
     details.addEventListener('toggle', renderPower);
     window.loadPowerChart = async function(hours, bounds = { start: Date.now() - hours * 3600000, end: Date.now() }) {
+        refreshCards(hours);
         const current = ++historyRequest;
         let plugs;
         try {
@@ -238,7 +267,6 @@
             const config = options(hours, bounds, theme);
             config.scales.y.suggestedMin = 45;
             config.scales.y.suggestedMax = 75;
-            config.scales.y.title = { display: true, text: '°F', color: theme.textColor };
             if (temperatureChart) temperatureChart.destroy();
             temperatureChart = new Chart(document.getElementById('activityChart').getContext('2d'), {
                 type: 'line', options: config,
@@ -276,8 +304,7 @@
         }
     };
 
-    refreshCards();
     window.loadPowerChart(currentRangeHours);
-    setInterval(refreshCards, 30000);
+    setInterval(() => refreshCards(currentRangeHours), 30000);
     setInterval(markStale, 5000);
 })();

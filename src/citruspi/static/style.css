@@ -348,6 +348,19 @@ body {
     font-weight: 600;
 }
 
+.history-range {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.history-range h2 {
+    font-size: 0.95rem;
+}
+
 .range-selector {
     display: inline-flex;
     background: var(--surface-sub);

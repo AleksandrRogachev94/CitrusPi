@@ -127,7 +127,8 @@ def create_app(
         return camera.list_photos(config)
 
     @app.get("/api/plugs")
-    def api_plugs() -> list[dict[str, Any]]:
+    def api_plugs(hours: int = 24) -> list[dict[str, Any]]:
+        safe_hours = max(1, min(hours, 720))
         now = datetime.now(UTC)
         result = []
         for plug in config.plugs:
@@ -140,7 +141,10 @@ def create_app(
                 "latest": latest, "stale": stale,
                 "monitoring": not config.mock_sensors,
                 "stale_after_sec": config.plug_poll_interval_sec * 3,
-                "summary": store.power_summary(plug.id, config.plug_poll_interval_sec, now),
+                "summary": store.power_summary(
+                    plug.id, config.plug_poll_interval_sec, now, electricity=config.electricity,
+                    hours=safe_hours,
+                ),
             })
         return result
 
