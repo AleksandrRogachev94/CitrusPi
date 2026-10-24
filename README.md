@@ -1,6 +1,6 @@
 # 🍊 CitrusPi
 
-Edge monitor for citrus grow tents. Runs on a Raspberry Pi Zero 2W.
+Edge monitor for citrus grow tents (overwintering). Runs on a Raspberry Pi Zero 2W.
 Logs canopy temperature, humidity, and root-zone temperature every minute, snaps one daily timelapse photo, offers live camera preview, and serves a web dashboard.
 
 ---
