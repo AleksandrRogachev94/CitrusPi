@@ -25,10 +25,15 @@ const plug = overrides => ({
 
 function harness(electricity = false) {
     function element() {
+        const classes = new Set();
         return {
             children: [], dataset: {}, textContent: '', className: '', open: false, hidden: false,
             style: { setProperty(key, value) { this[key] = value; } }, events: {},
             setAttribute(key, value) { this[key] = value; },
+            classList: {
+                toggle(name, value) { if (value) classes.add(name); else classes.delete(name); },
+                contains: name => classes.has(name),
+            },
             addEventListener(event, callback) { this.events[event] = callback; },
             appendChild(child) { this.children.push(child); },
             replaceChildren(...children) { this.children = children; },
@@ -45,7 +50,13 @@ function harness(electricity = false) {
     const nodes = Object.fromEntries(['plug-cards', 'plug-details', 'power-details',
         'plug-totals', 'plug-total-watts', 'plug-total-energy', 'equipment-range',
         'power-chart-status', 'powerChart', 'activityChart', 'activity-chart-status',
-        'activity-history-note', 'activity-selection', 'activity-periods', 'equipment-lanes'].map(id => [id, element()]));
+        'activity-history-note', 'activity-selection', 'activity-periods', 'equipment-lanes',
+        'temperature-history', 'equipment-summary', 'runtime-history', 'power-history'].map(id => [id, element()]));
+    for (const id of ['temperature-history', 'equipment-summary', 'runtime-history', 'power-history']) {
+        const content = element();
+        content.className = 'range-content';
+        nodes[id].appendChild(content);
+    }
     if (electricity) nodes['electricity-cost'] = element();
     const intervals = {};
     const charts = [];
@@ -76,6 +87,8 @@ function harness(electricity = false) {
         },
         setInterval: (fn, ms) => { intervals[ms] = fn; },
     });
+    const dashboard = fs.readFileSync(require.resolve('../src/citruspi/templates/dashboard.html'), 'utf8');
+    vm.runInContext(dashboard.match(/function setRangeLoading\(id, loading\) \{[\s\S]*?\n\}/)[0], context);
     vm.runInContext(fs.readFileSync(require.resolve('../src/citruspi/static/plugs.js'), 'utf8'), context);
     return {
         nodes, intervals, charts, context, requests, respond: fn => { respond = fn; },
@@ -83,6 +96,74 @@ function harness(electricity = false) {
     };
 }
 const flush = () => new Promise(resolve => setImmediate(resolve));
+
+test('each equipment section loads independently and waits for shared sensor history', async () => {
+    const h = harness();
+    await flush();
+    let releaseSummary, releaseHistory, releaseSensors;
+    h.respond(url => new Promise(resolve => {
+        if (url.startsWith('/api/plugs?')) releaseSummary = resolve;
+        else releaseHistory = resolve;
+    }));
+    const sensors = new Promise(resolve => { releaseSensors = resolve; });
+    const loading = h.context.window.loadPowerChart(720, undefined, sensors);
+    await flush();
+    for (const id of ['equipment-summary', 'runtime-history', 'temperature-history', 'power-history']) {
+        assert.equal(h.nodes[id]['aria-busy'], 'true');
+        assert.equal(h.nodes[id].classList.contains('is-loading'), true);
+        assert.equal(h.nodes[id].children[0].inert, true);
+    }
+    releaseSummary([plug()]);
+    await flush();
+    assert.equal(h.nodes['equipment-summary']['aria-busy'], 'false');
+    assert.equal(h.nodes['runtime-history']['aria-busy'], 'false');
+    assert.equal(h.nodes['temperature-history']['aria-busy'], 'true');
+    releaseHistory([series()]);
+    await flush();
+    assert.equal(h.nodes['power-history']['aria-busy'], 'true');
+    releaseSensors([]);
+    await loading;
+    assert.equal(h.nodes['temperature-history']['aria-busy'], 'false');
+    assert.equal(h.nodes['power-history']['aria-busy'], 'false');
+});
+
+test('equipment failures clear every loader and show unavailable status', async () => {
+    const h = harness();
+    await flush();
+    h.respond(async () => { throw new Error('offline'); });
+    await h.context.window.loadPowerChart(12);
+    await flush();
+    for (const id of ['equipment-summary', 'runtime-history', 'temperature-history', 'power-history']) {
+        assert.equal(h.nodes[id]['aria-busy'], 'false');
+        assert.equal(h.nodes[id].children[0].inert, false);
+    }
+    assert.match(h.nodes['equipment-range'].textContent, /unavailable/);
+    assert.match(h.nodes['activity-chart-status'].textContent, /unavailable/);
+    assert.match(h.nodes['power-chart-status'].textContent, /unavailable/);
+});
+
+test('old equipment requests cannot dismiss the new range loaders', async () => {
+    const h = harness();
+    await flush();
+    const pending = {};
+    h.respond(url => new Promise(resolve => { pending[url] = resolve; }));
+    const old = h.context.window.loadPowerChart(24);
+    const latest = h.context.window.loadPowerChart(720);
+    await flush();
+    pending['/api/plugs?hours=24']([plug()]);
+    pending['/api/plugs/history?hours=24']([series()]);
+    await old;
+    for (const id of ['equipment-summary', 'runtime-history', 'temperature-history', 'power-history']) {
+        assert.equal(h.nodes[id]['aria-busy'], 'true');
+    }
+    pending['/api/plugs?hours=720']([]);
+    pending['/api/plugs/history?hours=720']([]);
+    await latest;
+    await flush();
+    for (const id of ['equipment-summary', 'runtime-history', 'temperature-history', 'power-history']) {
+        assert.equal(h.nodes[id]['aria-busy'], 'false');
+    }
+});
 
 test('equipment reuses sensor history on startup and range changes without fetching it again', async () => {
     const h = harness();

@@ -1,5 +1,11 @@
 {% extends "base.html" %}
 {% from "_ai_report.html" import report_body %}
+{% macro range_loader(label) %}
+<div class="range-loader" role="status">
+    <span class="stream-spinner" aria-hidden="true"></span>
+    <span>{{ label }}</span>
+</div>
+{% endmacro %}
 {% block head %}
 <script src="/static/charts.js?v={{ static_version('charts.js') }}"></script>
 {% if config.plugs %}
@@ -108,11 +114,13 @@
     <!-- Column 2: Telemetry & Equipment History -->
     <div class="charts-column">
         <!-- Thermal & Equipment History -->
-        <section class="card chart-card timeline-card">
+        <section id="temperature-history" class="card chart-card timeline-card range-section" aria-busy="false">
             <div class="card-header-compact history-header">
                 <h2>{% if config.plugs %}Temperature &amp; Equipment{% else %}🌡️ Thermal Balance{% endif %}</h2>
 
             </div>
+            {{ range_loader('Loading temperature & equipment history…' if config.plugs else 'Loading temperature history…') }}
+            <div class="range-content">
             {% if config.plugs %}
             <div class="timeline-wrapper">
                 <p id="activity-chart-status" class="chart-empty-overlay muted small timeline-status" role="status" hidden></p>
@@ -133,18 +141,21 @@
             <p id="activity-history-note" class="muted small history-note"></p>
             {% else %}
             <div class="chart-wrapper-compact">
+                <p id="thermal-chart-status" class="chart-empty-overlay muted small" role="status" hidden></p>
                 <canvas id="thermalChart"></canvas>
             </div>
             {% endif %}
+            </div>
         </section>
 
         <!-- Canopy Microclimate (Temp, Humidity, VPD) -->
-        <section class="card chart-card">
+        <section id="climate-history" class="card chart-card range-section" aria-busy="false">
             <div class="card-header-compact">
                 <h2>📈 Canopy Microclimate</h2>
                 <span class="muted small">Temp · Humidity · VPD</span>
             </div>
-            <div class="chart-wrapper">
+            {{ range_loader('Loading canopy history…') }}
+            <div class="chart-wrapper range-content">
                 <p id="chart-status" class="chart-empty-overlay muted small" role="status" hidden></p>
                 <canvas id="climateChart"></canvas>
             </div>
@@ -158,6 +169,9 @@
         <h2>⚡ Equipment</h2>
         <span class="muted small">{% if is_mock %}Monitoring paused in mock mode{% else %}Local power monitoring{% endif %}</span>
     </div>
+    <div id="equipment-summary" class="range-section" aria-busy="false">
+    {{ range_loader('Loading equipment usage…') }}
+    <div class="range-content">
     <p id="equipment-range" class="muted small">Now is live · energy{% if config.electricity %} &amp; cost{% endif %}: last 24h</p>
     <div class="equipment-table-wrapper">
         <table class="equipment-table" aria-label="Equipment power, selected-range energy and estimated cost">
@@ -183,11 +197,21 @@
         {% if config.electricity %}
         {% if config.electricity.delivery_rate == 0 %}Supply only; delivery charges excluded.{% else %}Includes configured delivery rate.{% endif %}
         Fixed fees and other bill charges excluded.{% endif %}</p>
+    </div>
+    </div>
     <details id="power-details" class="power-details">
         <summary>Runtime &amp; power history</summary>
-        <div id="plug-details" class="plug-cards"></div>
+        <div id="runtime-history" class="range-section" aria-busy="false">
+            {{ range_loader('Loading equipment runtime…') }}
+            <div id="plug-details" class="plug-cards range-content"></div>
+        </div>
+        <div id="power-history" class="range-section" aria-busy="false">
+        {{ range_loader('Loading power history…') }}
+        <div class="range-content">
         <p id="power-chart-status" class="muted small" role="status"></p>
         <div class="chart-wrapper"><canvas id="powerChart" role="img" aria-label="Equipment power history in watts"></canvas></div>
+        </div>
+        </div>
     </details>
 </section>
 {% endif %}
@@ -345,14 +369,27 @@ const savedRange = Number(localStorage.getItem('citruspi-chart-range'));
 let currentRangeHours = [1, 12, 24, 72, 168, 336, 720].includes(savedRange) ? savedRange : 24;
 let chartRequestId = 0;
 
+function setRangeLoading(id, loading) {
+    const section = document.getElementById(id);
+    if (!section) return;
+    section.classList.toggle('is-loading', loading);
+    section.setAttribute('aria-busy', String(loading));
+    const content = section.querySelector('.range-content');
+    if (content) content.inert = loading;
+}
+
 function clearCharts(message) {
     if (climateChartInstance) climateChartInstance.destroy();
     if (thermalChartInstance) thermalChartInstance.destroy();
     climateChartInstance = null;
     thermalChartInstance = null;
-    const status = document.getElementById('chart-status');
-    status.textContent = message;
-    status.hidden = false;
+    for (const id of ['chart-status', 'thermal-chart-status']) {
+        const status = document.getElementById(id);
+        if (status) {
+            status.textContent = message;
+            status.hidden = false;
+        }
+    }
 }
 
 function getThemeColors() {
@@ -393,16 +430,26 @@ async function loadCharts(hours = currentRangeHours) {
     // The deferred equipment script also reuses this request on initial page load.
     window.chartHistoryLoad = { hours, bounds, readings };
     window.loadPowerChart?.(hours, bounds, readings);
-    const loadingStatus = document.getElementById('chart-status');
-    loadingStatus.textContent = 'Loading history…';
-    loadingStatus.hidden = false;
-    let data;
+    const sections = ['climate-history'];
+    if (document.getElementById('thermalChart')) sections.push('temperature-history');
+    for (const id of sections) setRangeLoading(id, true);
+    for (const id of ['chart-status', 'thermal-chart-status']) {
+        const status = document.getElementById(id);
+        if (status) status.hidden = true;
+    }
     try {
-        data = await readings;
+        await renderSensorCharts(hours, bounds, readings, requestId);
     } catch (error) {
         if (requestId === chartRequestId) clearCharts('Could not load history. Retrying on the next refresh.');
-        return;
+    } finally {
+        if (requestId === chartRequestId) {
+            for (const id of sections) setRangeLoading(id, false);
+        }
     }
+}
+
+async function renderSensorCharts(hours, bounds, readings, requestId) {
+    const data = await readings;
     if (requestId !== chartRequestId) return;
     if (!data.length) {
         clearCharts('No readings recorded for this period.');
@@ -414,10 +461,12 @@ async function loadCharts(hours = currentRangeHours) {
         clearCharts('Chart assets could not be loaded. Check your connection and refresh.');
         return;
     }
-    const status = document.getElementById('chart-status');
-    if (status) {
-        status.hidden = true;
-        status.textContent = '';
+    for (const id of ['chart-status', 'thermal-chart-status']) {
+        const status = document.getElementById(id);
+        if (status) {
+            status.hidden = true;
+            status.textContent = '';
+        }
     }
 
     const theme = getThemeColors();

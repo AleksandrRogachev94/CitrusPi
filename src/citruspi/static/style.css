@@ -626,6 +626,49 @@ button:active { transform: scale(0.98); }
     display: none !important;
 }
 
+.range-section {
+    position: relative;
+    min-width: 0;
+}
+
+.range-loader {
+    display: none;
+    position: absolute;
+    inset: 0;
+    z-index: 6;
+    align-items: center;
+    justify-content: center;
+    gap: 0.65rem;
+    padding: 0.75rem;
+    border-radius: inherit;
+    color: var(--text);
+    font-size: 0.8rem;
+    text-align: center;
+}
+
+.range-loader .stream-spinner {
+    width: 20px;
+    height: 20px;
+    flex: 0 0 20px;
+}
+
+.is-loading > .range-loader {
+    display: flex;
+}
+
+.is-loading > .range-content {
+    opacity: 0.15;
+    pointer-events: none;
+}
+
+#runtime-history.is-loading {
+    min-height: 3.5rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .range-loader .stream-spinner { animation: none; }
+}
+
 .chart-wrapper-compact {
     position: relative;
     height: 145px;

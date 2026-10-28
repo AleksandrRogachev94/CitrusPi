@@ -12,8 +12,10 @@ function page(name, { status = 'Telemetry Feed', timestamp, storedView = 'grid',
     let timerId = 0;
     function element(id) {
         const classes = new Set();
+        const rangeContent = { inert: false };
         return nodes[id] = {
             id, dataset: {}, style: {}, hidden: false, textContent: '',
+            rangeContent, querySelector: () => rangeContent,
             removeAttribute(name) { delete this[name]; },
             setAttribute(name, value) { this[name] = value; },
             getContext: () => ({}),
@@ -25,7 +27,8 @@ function page(name, { status = 'Telemetry Feed', timestamp, storedView = 'grid',
             },
         };
     }
-    for (const id of ['climateChart', 'thermalChart', 'chart-status', 'live-readings',
+    for (const id of ['climateChart', 'thermalChart', 'chart-status', 'thermal-chart-status',
+        'climate-history', 'temperature-history', 'live-readings',
         'telemetry-live-dot', 'telemetry-status-label',
         'gallery-grid-view', 'gallery-log-view', 'timelapse-btn', 'camera-display',
         'camera-empty', 'stream-live-pill', 'stream-loading', 'camera-caption',
@@ -71,6 +74,62 @@ function page(name, { status = 'Telemetry Feed', timestamp, storedView = 'grid',
 const reading = {
     timestamp: new Date().toISOString(), temp_f: 60, root_temp_f: 58, humidity: 65, vpd_kpa: 0.5,
 };
+
+test('sensor sections stay busy until history and chart assets are ready', async () => {
+    const p = page('dashboard.html');
+    let releaseData;
+    p.fetch(() => new Promise(resolve => { releaseData = resolve; }));
+    p.run('window.chartsReady = new Promise(resolve => { window.releaseAssets = resolve; })');
+    const loading = p.run('loadCharts(168)');
+    for (const id of ['climate-history', 'temperature-history']) {
+        assert.equal(p.nodes[id]['aria-busy'], 'true');
+        assert.equal(p.nodes[id].classList.contains('is-loading'), true);
+        assert.equal(p.nodes[id].rangeContent.inert, true);
+    }
+    releaseData({ ok: true, json: async () => [reading] });
+    await new Promise(setImmediate);
+    assert.equal(p.nodes['climate-history']['aria-busy'], 'true');
+    p.run('window.releaseAssets(true)');
+    await loading;
+    for (const id of ['climate-history', 'temperature-history']) {
+        assert.equal(p.nodes[id]['aria-busy'], 'false');
+        assert.equal(p.nodes[id].classList.contains('is-loading'), false);
+        assert.equal(p.nodes[id].rangeContent.inert, false);
+    }
+});
+
+test('sensor loaders clear on failure, empty history, and chart asset errors', async () => {
+    const p = page('dashboard.html');
+    for (const [response, assets] of [
+        [{ ok: false }, true],
+        [{ ok: true, json: async () => [] }, true],
+        [{ ok: true, json: async () => [reading] }, false],
+    ]) {
+        p.fetch(async () => response);
+        p.run(`window.chartsReady = Promise.resolve(${assets})`);
+        await p.run('loadCharts(12)');
+        for (const id of ['climate-history', 'temperature-history']) {
+            assert.equal(p.nodes[id]['aria-busy'], 'false');
+        }
+        assert.equal(p.nodes['chart-status'].hidden, false);
+        assert.equal(p.nodes['thermal-chart-status'].hidden, false);
+    }
+});
+
+test('an obsolete sensor response cannot clear the current range loaders', async () => {
+    const p = page('dashboard.html');
+    const pending = [];
+    p.fetch(() => new Promise(resolve => pending.push(resolve)));
+    const old = p.run('loadCharts(24)');
+    const latest = p.run('loadCharts(720)');
+    pending[0]({ ok: true, json: async () => [reading] });
+    await old;
+    assert.equal(p.nodes['climate-history']['aria-busy'], 'true');
+    assert.equal(p.nodes['temperature-history']['aria-busy'], 'true');
+    pending[1]({ ok: true, json: async () => [reading] });
+    await latest;
+    assert.equal(p.nodes['climate-history']['aria-busy'], 'false');
+});
 
 test('global range updates climate and equipment together and remembers selection', async () => {
     const p = page('dashboard.html');

@@ -94,8 +94,12 @@
         updateLiveTotal();
     }
 
-    async function refreshCards(hours = currentRangeHours) {
+    async function refreshCards(hours = currentRangeHours, showLoading = false) {
         const current = ++cardRequest;
+        if (showLoading || summaryHours !== hours) {
+            setRangeLoading('equipment-summary', true);
+            setRangeLoading('runtime-history', true);
+        }
         if (summaryHours !== hours) {
             summaryHours = hours;
             document.getElementById('plug-details').replaceChildren();
@@ -163,6 +167,11 @@
             document.getElementById('plug-details').replaceChildren();
             totalWatts.textContent = totalEnergy.textContent = '—';
             if (electricityCost) electricityCost.textContent = '—';
+        } finally {
+            if (current === cardRequest) {
+                setRangeLoading('equipment-summary', false);
+                setRangeLoading('runtime-history', false);
+            }
         }
     }
 
@@ -281,8 +290,11 @@
     window.loadPowerChart = async function(hours,
         bounds = { start: Date.now() - hours * 3600000, end: Date.now() },
         sensorReadings = Promise.resolve([])) {
-        refreshCards(hours);
+        refreshCards(hours, true);
         const current = ++historyRequest;
+        history = null;
+        setRangeLoading('temperature-history', true);
+        setRangeLoading('power-history', true);
         // Handle a sensor failure immediately, even if equipment history fails first.
         const temperaturesPromise = sensorReadings.catch(() => []);
         let plugs;
@@ -332,6 +344,11 @@
             activityStatus.textContent = 'History chart unavailable. Retrying on the next refresh.';
             activityStatus.hidden = false;
             powerStatus.textContent = 'Power history unavailable.';
+        } finally {
+            if (current === historyRequest) {
+                setRangeLoading('temperature-history', false);
+                setRangeLoading('power-history', false);
+            }
         }
     };
 
