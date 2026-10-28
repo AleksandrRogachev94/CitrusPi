@@ -278,12 +278,15 @@
     }
 
     details.addEventListener('toggle', renderPower);
-    window.loadPowerChart = async function(hours, bounds = { start: Date.now() - hours * 3600000, end: Date.now() }) {
+    window.loadPowerChart = async function(hours,
+        bounds = { start: Date.now() - hours * 3600000, end: Date.now() },
+        sensorReadings = Promise.resolve([])) {
         refreshCards(hours);
         const current = ++historyRequest;
+        // Handle a sensor failure immediately, even if equipment history fails first.
+        const temperaturesPromise = sensorReadings.catch(() => []);
         let plugs;
         try {
-            const temperaturesPromise = getJSON(`/api/history?hours=${hours}`).catch(() => []);
             plugs = await getJSON(`/api/plugs/history?hours=${hours}`);
             if (current !== historyRequest) return;
             renderLanes(plugs, bounds);
@@ -332,7 +335,8 @@
         }
     };
 
-    window.loadPowerChart(currentRangeHours);
+    const initial = window.chartHistoryLoad;
+    window.loadPowerChart(initial.hours, initial.bounds, initial.readings);
     setInterval(() => refreshCards(currentRangeHours), 30000);
     setInterval(markStale, 5000);
 })();

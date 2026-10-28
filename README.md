@@ -143,7 +143,8 @@ CitrusPi begins collecting. This integration only observes; it adds no switching
 automatic equipment alerts.
 
 The dashboard's **History range** applies to all charts, equipment runtime/energy,
-and estimated electricity costs. The **Now (W)** column remains live. Choose 1h–30d; the selection is remembered in your browser.
+and estimated electricity costs. The **Now (W)** column remains live. Choose 1h,
+12h, 24h, 3d, 7d, 14d, or 30d; the selection is remembered in your browser.
 
 To estimate electricity cost, add the `electricity` section from
 `config.example.yaml` to `config.yaml` and restart CitrusPi. The example includes

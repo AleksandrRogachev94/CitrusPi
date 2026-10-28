@@ -5,7 +5,7 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
-function page(name, { status = 'Telemetry Feed', timestamp, storedView = 'grid', reports = true } = {}) {
+function page(name, { status = 'Telemetry Feed', timestamp, storedView = 'grid', reports = true, storedRange } = {}) {
     const listeners = {};
     const nodes = {};
     const timers = new Map();
@@ -35,6 +35,7 @@ function page(name, { status = 'Telemetry Feed', timestamp, storedView = 'grid',
     nodes['live-readings'].dataset.staleAfter = '180';
     if (timestamp) element('telemetry-time').dataset.timestamp = timestamp;
     const storage = new Map([['citruspi-gallery-view', storedView]]);
+    if (storedRange) storage.set('citruspi-chart-range', storedRange);
     let fetchHistory = async () => ({ ok: true, json: async () => [] });
     const context = vm.createContext({
         document: {
@@ -73,7 +74,7 @@ const reading = {
 
 test('global range updates climate and equipment together and remembers selection', async () => {
     const p = page('dashboard.html');
-    p.run('window.loadPowerChart = (hours, bounds) => { window.equipmentRange = { hours, bounds }; };');
+    p.run('window.loadPowerChart = (hours, bounds, readings) => { window.equipmentRange = { hours, bounds, readings }; };');
     let requested;
     p.fetch(async url => { requested = url; return { ok: true, json: async () => [reading] }; });
     p.run('setChartRange(168)');
@@ -82,6 +83,26 @@ test('global range updates climate and equipment together and remembers selectio
     assert.equal(p.run('window.equipmentRange.hours'), 168);
     assert.equal(p.run('window.equipmentRange.bounds.end - window.equipmentRange.bounds.start'), 168 * 3600000);
     assert.equal(p.storage.get('citruspi-chart-range'), 168);
+    assert.equal((await p.run('window.equipmentRange.readings'))[0].temp_f, reading.temp_f);
+    assert.equal(p.run('window.equipmentRange.readings === window.chartHistoryLoad.readings'), true);
+});
+
+test('12-hour range is restored on reload and shares one history request with equipment', async () => {
+    const p = page('dashboard.html', { storedRange: '12' });
+    assert.equal(p.run('currentRangeHours'), 12);
+    assert.equal(p.run('window.chartHistoryLoad.hours'), 12);
+    const requests = [];
+    p.run('window.loadPowerChart = (hours, bounds, readings) => { window.equipmentReadings = readings; };');
+    p.fetch(async url => {
+        requests.push(url);
+        return { ok: true, json: async () => [reading] };
+    });
+    await p.run('setChartRange(12)');
+    await new Promise(setImmediate);
+    assert.deepEqual(requests, ['/api/history?hours=12']);
+    assert.equal(p.storage.get('citruspi-chart-range'), 12);
+    assert.equal((await p.run('window.equipmentReadings'))[0].temp_f, 60);
+    assert.equal(p.run('thermalChartInstance.options.scales.x.max - thermalChartInstance.options.scales.x.min'), 12 * 3600000);
 });
 
 test('camera expands inside the page when native fullscreen is unavailable', async () => {

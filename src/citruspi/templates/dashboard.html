@@ -24,6 +24,7 @@
     </div>
     <div class="range-selector" role="group" aria-label="Dashboard history range">
         <button type="button" class="range-btn" data-hours="1" onclick="setChartRange(1)">1h</button>
+        <button type="button" class="range-btn" data-hours="12" onclick="setChartRange(12)">12h</button>
         <button type="button" class="range-btn active" data-hours="24" onclick="setChartRange(24)">24h</button>
         <button type="button" class="range-btn" data-hours="72" onclick="setChartRange(72)">3d</button>
         <button type="button" class="range-btn" data-hours="168" onclick="setChartRange(168)">7d</button>
@@ -341,7 +342,7 @@ window.addEventListener('pagehide', () => {
 let climateChartInstance = null;
 let thermalChartInstance = null;
 const savedRange = Number(localStorage.getItem('citruspi-chart-range'));
-let currentRangeHours = [1, 24, 72, 168, 336, 720].includes(savedRange) ? savedRange : 24;
+let currentRangeHours = [1, 12, 24, 72, 168, 336, 720].includes(savedRange) ? savedRange : 24;
 let chartRequestId = 0;
 
 function clearCharts(message) {
@@ -382,13 +383,22 @@ function setChartRange(hours) {
 async function loadCharts(hours = currentRangeHours) {
     const requestId = ++chartRequestId;
     const bounds = { start: Date.now() - hours * 3600000, end: Date.now() };
-    window.loadPowerChart?.(hours, bounds);
-    let data;
-    try {
+    const readings = (async () => {
         const res = await fetch(`/api/history?hours=${hours}`);
         if (!res.ok) throw new Error('History request failed');
-        data = await res.json();
+        const data = await res.json();
         if (!Array.isArray(data)) throw new Error('Invalid history response');
+        return data;
+    })();
+    // The deferred equipment script also reuses this request on initial page load.
+    window.chartHistoryLoad = { hours, bounds, readings };
+    window.loadPowerChart?.(hours, bounds, readings);
+    const loadingStatus = document.getElementById('chart-status');
+    loadingStatus.textContent = 'Loading history…';
+    loadingStatus.hidden = false;
+    let data;
+    try {
+        data = await readings;
     } catch (error) {
         if (requestId === chartRequestId) clearCharts('Could not load history. Retrying on the next refresh.');
         return;

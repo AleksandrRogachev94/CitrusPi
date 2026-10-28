@@ -49,11 +49,21 @@ function harness(electricity = false) {
     if (electricity) nodes['electricity-cost'] = element();
     const intervals = {};
     const charts = [];
+    const requests = [];
     let respond = async url => url.startsWith('/api/plugs?') ? [plug()] : url.startsWith('/api/plugs/history') ? [series()] : [];
     const context = vm.createContext({
         document: { getElementById: id => nodes[id], createElement: element },
-        fetch: async url => ({ ok: true, json: () => respond(url) }),
-        window: { chartsReady: Promise.resolve(true) },
+        fetch: async url => {
+            requests.push(url);
+            return { ok: true, json: () => respond(url) };
+        },
+        window: {
+            chartsReady: Promise.resolve(true),
+            chartHistoryLoad: {
+                hours: 24, bounds: { start: now - 24 * 3600000, end: now },
+                readings: Promise.resolve([{ timestamp: iso(0), temp_f: 60, root_temp_f: 58 }]),
+            },
+        },
         getThemeColors: () => ({ textColor: 'white', gridColor: 'gray' }),
         currentRangeHours: 24, Date,
         Chart: function(ctx, config) {
@@ -68,11 +78,26 @@ function harness(electricity = false) {
     });
     vm.runInContext(fs.readFileSync(require.resolve('../src/citruspi/static/plugs.js'), 'utf8'), context);
     return {
-        nodes, intervals, charts, context, respond: fn => { respond = fn; },
+        nodes, intervals, charts, context, requests, respond: fn => { respond = fn; },
         openPower() { nodes['power-details'].open = true; nodes['power-details'].events.toggle(); },
     };
 }
 const flush = () => new Promise(resolve => setImmediate(resolve));
+
+test('equipment reuses sensor history on startup and range changes without fetching it again', async () => {
+    const h = harness();
+    await flush();
+    assert.equal(h.charts[0].config.data.datasets[0].data[0].y, 60);
+    assert.equal(h.charts[0].config.data.datasets[1].data[0].y, 58);
+    await h.context.window.loadPowerChart(12, undefined, Promise.resolve([
+        { timestamp: iso(0), temp_f: 62, root_temp_f: 59 },
+    ]));
+    assert.equal(h.charts.at(-1).config.data.datasets[0].data[0].y, 62);
+    assert.equal(h.charts.at(-1).config.data.datasets[1].data[0].y, 59);
+    assert.ok(h.requests.includes('/api/plugs?hours=12'));
+    assert.ok(h.requests.includes('/api/plugs/history?hours=12'));
+    assert.equal(h.requests.filter(url => url.startsWith('/api/history?')).length, 0);
+});
 
 test('global range drives usage and combined costs; missing data never becomes free', async () => {
     const h = harness(true);
@@ -226,7 +251,8 @@ test('activity is visible without sensors and has no misleading current-state ba
     assert.match(segments[0].title, /Active/);
     assert.equal(h.nodes['activity-chart-status'].hidden, true);
     assert.match(h.nodes['activity-history-note'].textContent, /Recorded since/);
-    assert.equal(h.charts[0].config.data.datasets[0].data.length, 0);
+    await h.context.window.loadPowerChart(24, undefined, Promise.resolve([]));
+    assert.equal(h.charts.at(-1).config.data.datasets[0].data.length, 0);
 });
 
 test('lanes align to actual chart bounds, rather than fixed CSS margins', async () => {
@@ -243,7 +269,7 @@ test('activity survives a sensor API or chart library failure', async () => {
         if (url.startsWith('/api/plugs/history')) return [series()];
         throw new Error('sensors unavailable');
     });
-    await h.context.window.loadPowerChart(1);
+    await h.context.window.loadPowerChart(1, undefined, Promise.reject(new Error('sensors unavailable')));
     assert.equal(h.nodes['equipment-lanes'].children.length, 1);
     assert.equal(h.nodes['activity-chart-status'].hidden, true);
     h.context.window.chartsReady = Promise.resolve(false);
