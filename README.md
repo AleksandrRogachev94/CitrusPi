@@ -7,23 +7,39 @@ Logs canopy temperature, humidity, and root-zone temperature every minute, snaps
 
 ## Setup on a Fresh Pi (Pi OS Lite)
 
-### 1. Copy code to the Pi (from your Mac)
+### 1. Update the Pi and clone the repository
+
+These examples use the Mac's `citruspi` SSH alias, user `alex`, and repository
+directory `/home/alex/CitrusPi`. Enable SSH when flashing Raspberry Pi OS Lite.
+GitHub authentication uses your Mac's forwarded SSH agent; if needed, load your
+GitHub key on the Mac first with `ssh-add ~/.ssh/id_ed25519`.
+
+Connect from your Mac, then run the remaining commands on the Pi:
+
 ```bash
-rsync -avz --exclude '.venv' . pi@citruspi.local:~/citruspi
+ssh -A citruspi
+
+# Install current OS updates, including security fixes, before application setup.
+sudo apt update
+sudo apt full-upgrade
+sudo apt install -y git
+
+git clone git@github.com:AleksandrRogachev94/CitrusPi.git ~/CitrusPi
+cd ~/CitrusPi
 ```
-*(Or on the Pi: `sudo apt update && sudo apt install -y git && git clone <repo> ~/citruspi`)*
 
 ### 2. Run Setup
-```bash
-ssh pi@citruspi.local
 
+Continue in the same Pi SSH session:
+
+```bash
 # 1. Set the Pi timezone to your local time (photoperiod depends on local time)
 sudo timedatectl set-timezone America/New_York  # Replace with your timezone
 
 # 2. Run setup script
-cd ~/citruspi && ./deploy/setup-pi.sh
+./deploy/setup-pi.sh
 
-# 3. Reboot the Pi (required for 1-Wire kernel overlay to activate)
+# 3. Reboot to load updated kernel/firmware and activate the 1-Wire overlay.
 sudo reboot
 ```
 *Note: The script automatically enables I2C and 1-Wire, installs dependencies, secures `config.yaml`, and configures `log2ram` to protect your microSD card from write wear.*
@@ -51,13 +67,31 @@ The recommended workflow is **writing code on your Mac and running everything li
 
 2. Pull and restart on the Pi in one shot:
    ```bash
-   ssh pi@citruspi.local "cd ~/citruspi && git pull && sudo systemctl restart citruspi"
+   ssh -A citruspi "cd ~/CitrusPi && git pull --ff-only && sudo systemctl restart citruspi"
    ```
 
 3. (Optional) Stream live logs to verify:
    ```bash
-   ssh pi@citruspi.local "sudo journalctl -u citruspi -f"
+   ssh -A citruspi "sudo journalctl -u citruspi -f"
    ```
+
+### System Security Updates
+
+Repeat these steps regularly to install OS security and other package updates.
+`apt update` refreshes package lists; `apt full-upgrade` installs the updates.
+Raspberry Pi [recommends full-upgrade](https://www.raspberrypi.com/documentation/computers/os.html#update-software)
+to handle changing package dependencies within the installed OS release.
+App deployments only pull code and restart CitrusPi; they do not update the OS.
+
+```bash
+ssh -A citruspi
+sudo apt update
+sudo apt full-upgrade
+sudo reboot
+```
+
+After rebooting, reconnect and check `systemctl status citruspi` and
+**http://citruspi.local/**. Also confirm fresh sensor and plug readings.
 
 ### Optional: Local Preview on Mac (Mock Mode)
 
@@ -75,7 +109,7 @@ python -m citruspi --mock
 Install the optional dependency on the Pi (also included in `dev` dependencies):
 
 ```bash
-cd ~/citruspi
+cd ~/CitrusPi
 .venv/bin/pip install -e ".[plugs]"
 ```
 
