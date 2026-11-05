@@ -2,6 +2,7 @@
 set -e
 
 echo "🍊 Setting up CitrusPi on Raspberry Pi..."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # 1. Enable hardware interfaces via raspi-config
 echo "==> Enabling I2C hardware interface..."
@@ -17,6 +18,8 @@ sudo raspi-config nonint do_onewire 0 || true
 # Note: Installing python3-opencv via apt provides pre-compiled ARM binaries.
 # This prevents pip from attempting to compile OpenCV from source on the Pi Zero 2W.
 echo "==> Installing system packages..."
+# Repair stale sources/keyrings from earlier setup attempts before updating APT.
+bash "$SCRIPT_DIR/deploy/setup-log2ram-repo.sh"
 sudo apt-get update
 sudo apt-get install -y \
     python3-venv \
@@ -26,15 +29,12 @@ sudo apt-get install -y \
     v4l-utils
 
 # 3. Preserve microSD card with log2ram (redirects /var/log to RAM)
-if ! dpkg -s log2ram >/dev/null 2>&1; then
+if [[ "$(dpkg-query -W -f='${Status}' log2ram 2>/dev/null || true)" != "install ok installed" ]]; then
     echo "==> Setting up log2ram to protect microSD card..."
-    echo "deb [signed-by=/usr/share/keyrings/azlux-archive-keyring.gpg] http://packages.azlux.fr/debian/ bookworm main" | sudo tee /etc/apt/sources.list.d/azlux.list >/dev/null
-    sudo wget -qO /usr/share/keyrings/azlux-archive-keyring.gpg https://azlux.fr/repo.gpg || true
-    sudo apt-get update >/dev/null 2>&1 && sudo apt-get install -y log2ram || echo "Note: log2ram skipped (can be installed manually)."
+    sudo apt-get install -y log2ram
 fi
 
 # 4. Create virtual environment with system site-packages (for OpenCV access)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$SCRIPT_DIR"
 
 echo "==> Creating Python virtual environment in $SCRIPT_DIR/.venv..."

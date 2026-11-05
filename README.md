@@ -209,19 +209,27 @@ them. Remove `electricity` or set it to `null` to hide cost estimates.
 
 ## MicroSD Card Protection (`log2ram`)
 
-Raspberry Pi OS writes constant syslog data to disk, which wears out consumer microSD cards over multi-month deployments.
+`log2ram` reduces microSD writes by keeping `/var/log` in RAM and periodically
+syncing it to disk.
 
 `setup-pi.sh` sets up `log2ram` automatically. To install or verify it manually:
 
 ```bash
-# Add repo and install log2ram
-echo "deb [signed-by=/usr/share/keyrings/azlux-archive-keyring.gpg] http://packages.azlux.fr/debian/ bookworm main" | sudo tee /etc/apt/sources.list.d/azlux.list
-sudo wget -qO /usr/share/keyrings/azlux-archive-keyring.gpg https://azlux.fr/repo.gpg
+# From ~/CitrusPi: configure the signed repository for the installed OS release.
+bash deploy/setup-log2ram-repo.sh
 sudo apt update && sudo apt install -y log2ram
 
 # Verify active
 systemctl status log2ram
 ```
+
+The helper verifies the key fingerprint published by the
+[repository maintainer](https://packages.azlux.fr/), then installs the key and
+matching OS source. Setup runs this before its first APT update, so retries also
+repair the empty-keyring/Bookworm-source error from earlier versions. Failed key
+downloads or unexpected fingerprints stop setup without replacing repository
+files. Signature verification remains enabled. Reboot after first installation
+to activate `log2ram`.
 
 ---
 
