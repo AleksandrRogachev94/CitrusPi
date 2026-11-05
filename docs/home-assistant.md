@@ -7,13 +7,15 @@ only publishes data; it accepts no MQTT commands and controls no plugs.
 
 Both CitrusPi and Home Assistant connect to an MQTT **broker**. CitrusPi publishes
 to it and HA subscribes. Port 8123 is HA's web port, not an MQTT port. HA downloads
-JPEGs from the Pi over HTTP, using the URL CitrusPi publishes.
+JPEGs from the Pi over HTTP, using the URL CitrusPi publishes. HA reads the Kasa plugs
+directly, and CitrusPi keeps polling them for its own dashboard.
 
 ## Setup
 
-1. On Home Assistant OS, install the **Mosquitto broker** app and add the **MQTT**
-   integration. For HA Container, run Mosquitto separately. Create a dedicated broker
-   login for CitrusPi.
+1. On Home Assistant OS, install the **Mosquitto broker** app (called an add-on on older
+   versions) and add the **MQTT** integration. For HA Container, run Mosquitto separately.
+   Create a dedicated login for CitrusPi. On HA OS, that is a new HA user under
+   **Settings → People → Users**.
 2. On the Pi, install the optional dependency:
 
    ```sh
@@ -21,7 +23,8 @@ JPEGs from the Pi over HTTP, using the URL CitrusPi publishes.
    .venv/bin/pip install -e ".[mqtt]"
    ```
 
-3. Replace `mqtt: null` in the Pi's `config.yaml`, then run `chmod 600 config.yaml`:
+3. Add this to the Pi's `config.yaml`, replacing `mqtt: null` if it is there, then run
+   `chmod 600 config.yaml`:
 
    ```yaml
    mqtt:
@@ -43,7 +46,8 @@ JPEGs from the Pi over HTTP, using the URL CitrusPi publishes.
 
 4. Restart `citruspi`. HA should discover one **CitrusPi** device. Assign it to your
    grow tent area. Values appear on the next sensor sample, normally within a minute.
-   History is not backfilled into HA.
+   History is not backfilled into HA. Daily photo stays unavailable until the first
+   capture, and the AI entities stay unknown until the first report.
 5. Add the plugs with HA's **TP-Link Smart Home** integration. Enable Third-Party
    Compatibility in the vendor app if needed.
 
@@ -63,16 +67,23 @@ If you use broker ACLs, allow CitrusPi to publish to `citruspi/citruspi/#` and
 | Connection | MQTT connection status; diagnostic |
 | Daily photo | Latest archived daily JPEG |
 | Last daily capture | Modification time of that image |
-| Plant assessment | `healthy`, `watch`, or `alert`; unknown for a skipped analysis. `alert` means new, clearly worse, or urgent; ongoing problems are `watch` |
+| Plant assessment | `healthy`, `watch`, or `alert`; unknown for a skipped analysis |
 | Last successful analysis | Creation time of the last successful report |
 
-Plant assessment attributes are `report_id`, `date`, `created_at`, `summary`, `trees`,
+`alert` means a concern that is new, clearly worse than the reference photos, or urgent.
+Ongoing problems are `watch`, and the report still describes them.
+
+Plant assessment attributes include `report_id`, `date`, `created_at`, `summary`, `trees`,
 `reference_dates`, `photo_url`, `analysis_outcome`, and `leaf_drop`. `leaf_drop` is
 `null` for skipped images and reports without comparison photos. A failed AI request
 leaves the earlier report in place, so show the report date next to its assessment.
 
 Live sensors become unavailable after three polling intervals without data, and each
 sensor becomes unavailable on its own if its value is missing.
+
+Last reading changes every minute, so it fills the device's Activity panel. Disable that
+entity in HA if you don't need it; the sensors still go unavailable when data stops. Use
+Last daily capture, rather than the Daily photo entity's own time, as the photo's time.
 
 ## Equipment activity
 
@@ -103,15 +114,61 @@ preloaded live view. Live viewing during a daily capture is untested on the real
 
 ## Notifications
 
-Good first automations:
+These two automations cover CitrusPi going offline and new AI alerts. Add them to
+`automations.yaml`, or paste each one into the automation editor's **Edit in YAML** view
+without its leading `- `. Then replace `YOUR_PHONE` with your Companion app device and
+check the entity IDs against your CitrusPi device page.
+
+```yaml
+- alias: "CitrusPi offline"
+  triggers:
+    - trigger: state
+      entity_id: binary_sensor.citruspi_connection
+      to: ["off", "unavailable"]
+      for: "00:05:00"
+    - trigger: state
+      entity_id: sensor.citruspi_canopy_temperature
+      to: "unavailable"
+      for: "00:10:00"
+  conditions:
+    # Avoid a second notification when the whole connection is already down.
+    - condition: template
+      value_template: >-
+        {{ trigger.entity_id == 'binary_sensor.citruspi_connection'
+           or is_state('binary_sensor.citruspi_connection', 'on') }}
+  actions:
+    - action: notify.mobile_app_YOUR_PHONE
+      data:
+        title: "CitrusPi problem"
+        message: "CitrusPi is offline or its canopy sensor has stopped reporting."
+
+- alias: "CitrusPi plant alert"
+  triggers:
+    - trigger: state
+      entity_id: sensor.citruspi_plant_assessment
+      to: "alert"
+      not_from: ["unavailable", "unknown"]
+  actions:
+    - action: notify.mobile_app_YOUR_PHONE
+      data:
+        title: "Plant alert"
+        message: "{{ state_attr('sensor.citruspi_plant_assessment', 'summary') }}"
+```
+
+- **CitrusPi offline:** the first trigger fires when the Pi or the broker connection is
+  lost. The second catches a canopy sensor that stops reporting while the connection
+  stays up. To test it, run `sudo systemctl stop citruspi` on the Pi, wait 5 minutes, then
+  run `sudo systemctl start citruspi`. Monitoring and ntfy alerts are paused until then.
+- **Plant alert:** this notifies once when the status changes to `alert`, even if the alert
+  lasts several days. A real change can stay `alert` for about a week, until the 7-day
+  reference photo catches up. `not_from` stops an HA restart from notifying again. A day with a
+  skipped analysis between two alerts is also excluded, so that later alert won't notify.
+
+Other useful automations:
 
 - Sustained temperature excursions, using seasonal thresholds in HA helpers.
-- CitrusPi offline: the Connection entity is off or unavailable for a few minutes.
-- Missing sensor data. Distinguish unavailable from zero or an off relay.
 - A daily image or successful analysis missing after its expected time.
 - A light drawing no power during its schedule.
-- A new AI alert. Trigger when Plant assessment changes to `alert`, with `not_from` set
-  to `unavailable` and `unknown` so an HA restart does not notify again.
 
 Keep AI advisory, and keep the heater's independent thermostat. Leave CitrusPi's ntfy
 alerts on until HA notifications are tested. HA cannot notify you when HA itself or the
@@ -130,9 +187,12 @@ home's power or internet is down.
 ## Validate a deployment
 
 1. Discovery and fresh values appear in HA, and the latest daily photo loads.
-2. Stop the broker: the Pi keeps logging. Restart it and HA: values recover.
-3. A missing probe becomes unavailable, and a skipped analysis shows no plant verdict.
-4. The Pi dashboard still shows fresh sensor and plug readings.
+2. Restart HA: the photo and assessment return straight away, and sensors within a minute.
+3. Stop the broker: HA entities become unavailable and the Pi dashboard keeps updating.
+   Start it again: values recover without touching the Pi.
+4. Stop `citruspi`: Connection shows Disconnected. Start it again: values recover.
+5. A missing probe becomes unavailable, and a skipped analysis shows no plant verdict.
+6. The Pi dashboard still shows fresh sensor and plug readings.
 
 Setting `mqtt: null` leaves retained discovery entries on the broker. Delete this
 device's retained topics if you uninstall it permanently.
