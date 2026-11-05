@@ -5,6 +5,23 @@
 # 60 seconds gives great resolution and uses <0.1MB/day in SQLite.
 poll_interval_sec: 60
 
+# Optional Home Assistant MQTT Discovery. Install: pip install -e ".[mqtt]"
+# MQTT connects to a broker, not to HA's web port. Enable after configuring Mosquitto.
+# Omit this section or use null to disable. Mock mode never publishes.
+mqtt: null
+# mqtt:
+#   host: "192.168.1.241"       # If Mosquitto runs on the HA host; hostname also works
+#   port: 1883
+#   username: "citruspi"
+#   password: ""               # Prefer CITRUSPI_MQTT_PASSWORD in the service environment
+#   device_id: "citruspi"      # Stable identity; don't change when renaming/moving the Pi
+#   base_url: "http://citruspi.local"  # Pi HTTP address reachable FROM Home Assistant
+#   discovery_prefix: "homeassistant"
+#   tls: false                 # Set true and port 8883 for a TLS-enabled broker
+#   ca_file: null              # Optional private CA file; requires tls: true
+# Env overrides when mqtt is configured: CITRUSPI_MQTT_HOST, CITRUSPI_MQTT_USERNAME,
+# CITRUSPI_MQTT_PASSWORD, CITRUSPI_MQTT_BASE_URL. See docs/home-assistant.md.
+
 # BME280 I2C address (0x76 or 0x77)
 bme280_address: 0x76
 

@@ -56,6 +56,24 @@ def test_plug_endpoints_disabled_by_default(client):
     assert 'id="powerChart"' not in client.get("/").text
 
 
+def test_camera_still_reads_archive_without_camera_access(tmp_path):
+    cfg = Config(mock_sensors=True, data_dir=tmp_path / "data",
+                 captures_dir=tmp_path / "captures")
+    client = TestClient(create_app(cfg, Store(cfg.data_dir), SensorHub(cfg)))
+    with patch("citruspi.camera.capture_frame", side_effect=AssertionError("camera opened")):
+        assert client.get("/api/camera/still").status_code == 404
+        (cfg.captures_dir / "manual.jpg").write_bytes(b"manual")
+        assert client.get("/api/camera/still").status_code == 404
+        (cfg.captures_dir / "2026-11-02.jpg").write_bytes(b"previous")
+        (cfg.captures_dir / "2026-11-03.jpg").write_bytes(b"latest")
+        for _ in range(2):
+            response = client.get("/api/camera/still")
+            assert response.status_code == 200
+            assert response.content == b"latest"
+            assert response.headers["content-type"] == "image/jpeg"
+            assert response.headers["cache-control"] == "no-cache"
+
+
 @pytest.fixture
 def client(tmp_path: Path) -> TestClient:
     cfg = Config(

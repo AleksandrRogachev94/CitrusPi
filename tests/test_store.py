@@ -8,6 +8,41 @@ from citruspi.models import Reading
 from citruspi.store import MIGRATIONS, Store
 
 
+def test_failed_sensor_write_does_not_signal_publisher(tmp_path):
+    import sqlite3
+
+    import pytest
+
+    store = Store(tmp_path)
+    store._get_conn().execute(
+        "CREATE TRIGGER reject_reading BEFORE INSERT ON readings "
+        "BEGIN SELECT RAISE(ABORT, 'test failure'); END"
+    )
+    with pytest.raises(sqlite3.IntegrityError):
+        store.insert(Reading.create(temp_c=10))
+    assert not store.updates.ready.is_set()
+    assert store.updates.take() == {}
+    assert store.latest() is None
+
+
+def test_migrate_dark_reports_without_losing_history(tmp_path):
+    with patch("citruspi.store.MIGRATIONS", MIGRATIONS[:6]):
+        old_store = Store(tmp_path)
+        with old_store._get_conn() as conn:
+            conn.execute("INSERT INTO daily_reports (date, created_at, status, summary) "
+                         "VALUES ('2026-11-02', 'old', 'healthy', 'Fine')")
+            conn.execute("INSERT INTO daily_reports (date, created_at, status, summary) "
+                         "VALUES ('2026-11-03', 'old', 'watch', ?)", (
+                             "Photo too dark or invalid for canopy health analysis "
+                             "(check camera, tent lighting, or capture schedule).",))
+    store = Store(tmp_path)
+    assert len(store.daily_reports()) == 2
+    assert store.latest_report()["analysis_outcome"] == "skipped"
+    assert store.latest_successful_report()["date"] == "2026-11-02"
+    assert store.latest_successful_report()["created_at"] == "old"
+    assert len(Store(tmp_path).daily_reports()) == 2
+
+
 def test_migrations_applied(tmp_path: Path) -> None:
     store = Store(tmp_path)
     migrations = store.get_applied_migrations()

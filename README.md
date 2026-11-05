@@ -104,6 +104,12 @@ python -m citruspi --mock
 
 ---
 
+## Optional Home Assistant Integration
+
+CitrusPi can publish its sensors, daily photo URL, and AI results through MQTT Discovery.
+Kasa plugs connect directly to Home Assistant. The existing dashboard and local history
+remain. See the [setup guide](docs/home-assistant.md).
+
 ## Optional Kasa Plug Monitoring
 
 Install the optional dependency on the Pi (also included in `dev` dependencies):

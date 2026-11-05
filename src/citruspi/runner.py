@@ -107,6 +107,7 @@ def daily_tick(
         photo_path = None
     _check_missing_capture(config, alerts, curr_now)
     if photo_path:
+        store.updates.notify("photo")
         logger.info("Daily timelapse capture taken: %s", photo_path)
 
     target_path = photo_path or (config.captures_dir / f"{today_str}.jpg")

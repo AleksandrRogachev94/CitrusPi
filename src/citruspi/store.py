@@ -22,6 +22,7 @@ from typing import Any
 from citruspi.config import ElectricityConfig
 from citruspi.electricity import interval_cost
 from citruspi.models import PowerReading, Reading
+from citruspi.updates import Updates
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +107,17 @@ MIGRATIONS: list[tuple[int, str, list[str]]] = [
                 ON power_readings (plug_id, timestamp);""",
         ],
     ),
+    (
+        7,
+        "add_analysis_outcome",
+        [
+            "ALTER TABLE daily_reports ADD COLUMN analysis_outcome TEXT NOT NULL "
+            "DEFAULT 'succeeded';",
+            "UPDATE daily_reports SET analysis_outcome = 'skipped' WHERE summary = "
+            "'Photo too dark or invalid for canopy health analysis "
+            "(check camera, tent lighting, or capture schedule).';",
+        ],
+    ),
 ]
 
 
@@ -116,6 +128,7 @@ class Store:
         data_dir.mkdir(parents=True, exist_ok=True)
         self._db_path = data_dir / "citruspi.db"
         self._local = threading.local()
+        self.updates = Updates()
         self._run_migrations()
 
     def _get_conn(self) -> sqlite3.Connection:
@@ -201,6 +214,7 @@ class Store:
                     reading.vpd_kpa,
                 ),
             )
+        self.updates.notify("reading", reading.to_dict())
 
     # ── Read Operations ───────────────────────────────────────────────────────
 
@@ -520,6 +534,7 @@ class Store:
         *,
         trees: list[dict[str, str]] | None = None,
         reference_dates: list[str] | None = None,
+        analysis_outcome: str = "succeeded",
     ) -> None:
         """Save or update daily AI analysis report (upsert)."""
         conn = self._get_conn()
@@ -529,22 +544,26 @@ class Store:
             conn.execute(
                 """
                 INSERT INTO daily_reports
-                    (date, created_at, status, summary, leaf_drop, trees, reference_dates)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (date, created_at, status, summary, leaf_drop, trees, reference_dates,
+                     analysis_outcome)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(date) DO UPDATE SET
                     created_at = excluded.created_at,
                     status = excluded.status,
                     summary = excluded.summary,
                     leaf_drop = excluded.leaf_drop,
                     trees = excluded.trees,
-                    reference_dates = excluded.reference_dates;
+                    reference_dates = excluded.reference_dates,
+                    analysis_outcome = excluded.analysis_outcome;
                 """,
                 (
                     date_str, now_utc, status, summary, leaf_drop_int,
                     json.dumps(trees or []),
                     json.dumps(reference_dates) if reference_dates is not None else None,
+                    analysis_outcome,
                 ),
             )
+        self.updates.notify("analysis_report")
 
     @staticmethod
     def _decode_report(row: sqlite3.Row) -> dict[str, Any]:
@@ -560,6 +579,14 @@ class Store:
         conn = self._get_conn()
         row = conn.execute(
             "SELECT * FROM daily_reports ORDER BY date DESC LIMIT 1;"
+        ).fetchone()
+        return self._decode_report(row) if row else None
+
+    def latest_successful_report(self) -> dict[str, Any] | None:
+        """Exclude skipped/dark captures from the last successful assessment."""
+        row = self._get_conn().execute(
+            "SELECT * FROM daily_reports WHERE analysis_outcome = 'succeeded' "
+            "ORDER BY date DESC LIMIT 1;"
         ).fetchone()
         return self._decode_report(row) if row else None
 

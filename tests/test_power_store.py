@@ -104,7 +104,7 @@ def test_migration_is_repeatable_and_preserves_sensor_history(tmp_path):
     reopened = Store(tmp_path)
     assert reopened.latest()["temp_c"] == 20
     assert reopened.latest_power("heater")["power_w"] == 100
-    assert [m["version"] for m in reopened.get_applied_migrations()] == list(range(1, 7))
+    assert [m["version"] for m in reopened.get_applied_migrations()] == list(range(1, 8))
 
 
 def test_power_activity_intervals_merging_and_outages(tmp_path):

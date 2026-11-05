@@ -532,12 +532,14 @@ def run_daily_analysis(
                 str(dark_verdict["status"]),
                 str(dark_verdict["summary"]),
                 bool(dark_verdict["leaf_drop"]),
+                analysis_outcome="skipped",
             )
             return {
                 "date": today_str,
                 "status": str(dark_verdict["status"]),
                 "leaf_drop": bool(dark_verdict["leaf_drop"]),
                 "summary": str(dark_verdict["summary"]),
+                "analysis_outcome": "skipped",
             }
 
         frames = select_analysis_frames(config.captures_dir, today_path, today_date)

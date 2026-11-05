@@ -7,8 +7,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -112,6 +112,17 @@ def create_app(
         )
 
     # ── JSON API ──────────────────────────────────────────────────────
+
+    @app.get("/api/camera/still")
+    def camera_still() -> FileResponse:
+        """Latest archived daily photo; thumbnail polling never opens the camera."""
+        photo = camera.latest_photo(config)
+        if photo is None:
+            raise HTTPException(status_code=404, detail="No daily photo available")
+        path = config.captures_dir / photo["filename"]
+        if not path.is_file() or not path.stat().st_size:
+            raise HTTPException(status_code=404, detail="No daily photo available")
+        return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "no-cache"})
 
     @app.get("/api/current")
     def api_current() -> dict[str, Any]:

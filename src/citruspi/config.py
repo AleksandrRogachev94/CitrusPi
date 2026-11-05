@@ -17,6 +17,31 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 @dataclass(frozen=True)
+class MQTTConfig:
+    """Optional Home Assistant publisher; the broker need not run on the HA host."""
+
+    host: str
+    port: int = 1883
+    username: str = field(default="", repr=False)
+    password: str = field(default="", repr=False)
+    device_id: str = "citruspi"
+    base_url: str = "http://citruspi.local"
+    discovery_prefix: str = "homeassistant"
+    tls: bool = False
+    ca_file: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.host, str) or not self.host.strip() or "://" in self.host:
+            raise ValueError("mqtt.host must be a broker hostname or IP (without a URL scheme)")
+        if type(self.port) is not int or not 1 <= self.port <= 65535:
+            raise ValueError("mqtt.port must be an integer from 1 to 65535")
+        if not isinstance(self.device_id, str) or not re.fullmatch(r"[a-z0-9_-]+", self.device_id):
+            raise ValueError("mqtt.device_id must use lowercase letters, numbers, _ or -")
+        if not str(self.base_url).startswith(("http://", "https://")):
+            raise ValueError("mqtt.base_url must be an HTTP(S) URL reachable from Home Assistant")
+
+
+@dataclass(frozen=True)
 class ElectricityConfig:
     """USD/kWh and local-hour windows; off-peak covers all remaining hours."""
 
@@ -104,6 +129,7 @@ class Config:
     kasa_username: str = field(default="", repr=False)
     kasa_password: str = field(default="", repr=False)
     electricity: ElectricityConfig | None = None
+    mqtt: MQTTConfig | None = None
 
     # ── Camera & Photoperiod ──────────────────────────────────────────
     camera_device: str = "/dev/video0"
@@ -262,6 +288,21 @@ def load_config(path: str | Path | None = None) -> Config:
     for key in ("kasa_username", "kasa_password"):
         if f"CITRUSPI_{key.upper()}" in os.environ:
             raw[key] = os.environ[f"CITRUSPI_{key.upper()}"]
+
+    # Environment credentials never enable MQTT implicitly.
+    if isinstance(raw.get("mqtt"), dict):
+        for key in ("host", "username", "password", "base_url"):
+            env_key = f"CITRUSPI_MQTT_{key.upper()}"
+            if env_key in os.environ:
+                raw["mqtt"][key] = os.environ[env_key]
+
+    # MQTT is an optional extension: a bad setting must not stop local monitoring.
+    if raw.get("mqtt") is not None:
+        try:
+            raw["mqtt"] = MQTTConfig(**raw["mqtt"])
+        except (TypeError, ValueError) as exc:
+            logger.error("MQTT disabled, invalid mqtt settings: %s", exc)
+            raw["mqtt"] = None
 
     valid_fields = {f.name for f in dataclasses.fields(Config)}
     filtered: dict[str, Any] = {}

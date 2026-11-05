@@ -204,6 +204,17 @@ def main() -> None:
     )
     sensor_thread.start()
     photo_thread.start()
+    mqtt_thread = None
+    if config.mqtt is not None and not config.mock_sensors:
+        from citruspi.homeassistant import run_mqtt_loop
+
+        mqtt_thread = threading.Thread(
+            target=run_mqtt_loop, args=(config, store, stop_event),
+            daemon=True, name="mqtt",
+        )
+        mqtt_thread.start()
+    elif config.mqtt is not None:
+        logger.info("MQTT publishing disabled in mock mode to protect Home Assistant entities")
     plug_thread = None
     if config.plugs and not config.mock_sensors:
         from citruspi.plugs import run_plug_loop
@@ -232,6 +243,9 @@ def main() -> None:
         pass
     finally:
         stop_event.set()
+        store.updates.notify("shutdown")
+        if mqtt_thread is not None:
+            mqtt_thread.join(timeout=10)
         if plug_thread is not None:
             plug_thread.join(timeout=15)
         logger.info("🍊 CitrusPi stopped.")
