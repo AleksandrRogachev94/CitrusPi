@@ -26,10 +26,7 @@ def test_sensor_tick_records_reading_and_evaluates_alerts(tmp_path: Path) -> Non
     sensors = SensorHub(cfg)
     alerts = AlertManager(cfg)
 
-    with (
-        patch.object(alerts, "evaluate") as mock_eval,
-        patch.object(alerts, "send_heartbeat") as mock_hb,
-    ):
+    with patch.object(alerts, "evaluate") as mock_eval:
         reading = sensor_tick(sensors, store, alerts)
         assert reading is not None
         assert reading.temp_f is not None
@@ -39,9 +36,8 @@ def test_sensor_tick_records_reading_and_evaluates_alerts(tmp_path: Path) -> Non
         assert latest is not None
         assert latest["temp_f"] == reading.temp_f
 
-        # Verify alert evaluation and heartbeat were dispatched
+        # Verify alert evaluation was dispatched
         mock_eval.assert_called_once_with(reading)
-        mock_hb.assert_called_once()
 
 
 def test_daily_tick_runs_scheduled_capture_and_analysis(tmp_path: Path) -> None:

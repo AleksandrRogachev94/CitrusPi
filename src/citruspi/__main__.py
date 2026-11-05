@@ -20,7 +20,7 @@ def main() -> None:
     parser.add_argument(
         "--test-alert",
         action="store_true",
-        help="Send test ntfy alert and heartbeat ping, then exit",
+        help="Send test ntfy alert, then exit",
     )
     parser.add_argument(
         "--analyze-now",
@@ -101,30 +101,19 @@ def main() -> None:
         print("Testing CitrusPi alerts...")
         print(f"  ntfy URL:      {config.ntfy_url}")
         print(f"  ntfy topic:    {config.ntfy_topic or '(none)'}")
-        print(f"  heartbeat URL: {config.heartbeat_url or '(none)'}")
 
         ntfy_ok = alerts.send_ntfy(
             title="CitrusPi Test Alert",
             message="This is a test notification from CitrusPi.",
             priority="urgent",
         )
-        hb_ok = alerts.send_heartbeat()
 
         if ntfy_ok:
             print("✓ ntfy test alert sent successfully")
         else:
             print("✗ ntfy test alert failed (check topic / network)")
 
-        if config.heartbeat_url:
-            if hb_ok:
-                print("✓ Heartbeat ping sent successfully")
-            else:
-                print("✗ Heartbeat ping failed (check URL / network)")
-        else:
-            print("ℹ No heartbeat_url configured")  # noqa: RUF001
-
-        all_ok = ntfy_ok and (hb_ok if config.heartbeat_url else True)
-        sys.exit(0 if all_ok else 1)
+        sys.exit(0 if ntfy_ok else 1)
 
     import socket
 

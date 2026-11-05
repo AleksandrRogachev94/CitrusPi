@@ -1,4 +1,4 @@
-"""Alerting and heartbeat module for CitrusPi — thread-safe rule evaluation & ntfy dispatch."""
+"""Alerting module for CitrusPi — thread-safe rule evaluation & ntfy dispatch."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ class AlertRule:
 
 
 class AlertManager:
-    """Evaluates telemetry readings against alert rules and dispatches ntfy & heartbeats."""
+    """Evaluates telemetry readings against alert rules and dispatches ntfy."""
 
     def __init__(
         self,
@@ -105,19 +105,6 @@ class AlertManager:
             return True
         except Exception as e:
             logger.warning("Failed to send ntfy alert (%s)", type(e).__name__)
-            return False
-
-    def send_heartbeat(self) -> bool:
-        """Send a GET request to heartbeat_url if configured. Returns True on success."""
-        if not self.config.heartbeat_url:
-            return False
-
-        try:
-            resp = httpx.get(self.config.heartbeat_url, timeout=3.0)
-            resp.raise_for_status()
-            return True
-        except Exception as e:
-            logger.warning("Failed to send heartbeat (%s)", type(e).__name__)
             return False
 
     def _evaluate_rule(

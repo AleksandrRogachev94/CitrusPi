@@ -151,10 +151,9 @@ class Config:
     data_dir: Path = field(default_factory=lambda: _PROJECT_ROOT / "data")
     captures_dir: Path = field(default_factory=lambda: _PROJECT_ROOT / "captures")
 
-    # ── Alerts & Heartbeat ────────────────────────────────────────────
+    # ── Alerts ────────────────────────────────────────────────────────
     ntfy_url: str = "https://ntfy.sh"
     ntfy_topic: str = ""
-    heartbeat_url: str = ""
     temp_min_crit_f: float = 38.0
     temp_min_warn_f: float = 44.0
     temp_max_crit_f: float = 85.0
@@ -281,8 +280,6 @@ def load_config(path: str | Path | None = None) -> Config:
     # Environment variable overrides
     if "CITRUSPI_NTFY_TOPIC" in os.environ:
         raw["ntfy_topic"] = os.environ["CITRUSPI_NTFY_TOPIC"]
-    if "CITRUSPI_HEARTBEAT_URL" in os.environ:
-        raw["heartbeat_url"] = os.environ["CITRUSPI_HEARTBEAT_URL"]
     if "CITRUSPI_AI_API_KEY" in os.environ:
         raw["ai_api_key"] = os.environ["CITRUSPI_AI_API_KEY"]
     for key in ("kasa_username", "kasa_password"):

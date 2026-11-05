@@ -118,11 +118,10 @@ host: "0.0.0.0"
 port: 80
 log_level: "info"
 
-# Alerting & Heartbeats (ntfy.sh push notifications and dead-man's-snitch heartbeat ping)
-# ntfy_topic and heartbeat_url can also be set via CITRUSPI_NTFY_TOPIC and CITRUSPI_HEARTBEAT_URL env vars.
+# Alerting (ntfy.sh push notifications)
+# ntfy_topic can also be set via the CITRUSPI_NTFY_TOPIC env var.
 ntfy_url: "https://ntfy.sh"
 ntfy_topic: ""
-heartbeat_url: ""
 
 # Temperature thresholds (°F) and debounce count (consecutive readings required to trigger).
 # NOTE: These thresholds assume the ~50°F winter phase and must be raised

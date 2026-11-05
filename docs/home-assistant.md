@@ -63,7 +63,7 @@ If you use broker ACLs, allow CitrusPi to publish to `citruspi/citruspi/#` and
 | Connection | MQTT connection status; diagnostic |
 | Daily photo | Latest archived daily JPEG |
 | Last daily capture | Modification time of that image |
-| Plant assessment | `healthy`, `watch`, or `alert`; unknown for a skipped analysis |
+| Plant assessment | `healthy`, `watch`, or `alert`; unknown for a skipped analysis. `alert` means new, clearly worse, or urgent; ongoing problems are `watch` |
 | Last successful analysis | Creation time of the last successful report |
 
 Plant assessment attributes are `report_id`, `date`, `created_at`, `summary`, `trees`,
@@ -106,14 +106,16 @@ preloaded live view. Live viewing during a daily capture is untested on the real
 Good first automations:
 
 - Sustained temperature excursions, using seasonal thresholds in HA helpers.
+- CitrusPi offline: the Connection entity is off or unavailable for a few minutes.
 - Missing sensor data. Distinguish unavailable from zero or an off relay.
 - A daily image or successful analysis missing after its expected time.
 - A light drawing no power during its schedule.
-- A new AI report needing attention. Trigger on a changed `report_id`, not every MQTT
-  message, because retained results are replayed when HA restarts.
+- A new AI alert. Trigger when Plant assessment changes to `alert`, with `not_from` set
+  to `unavailable` and `unknown` so an HA restart does not notify again.
 
 Keep AI advisory, and keep the heater's independent thermostat. Leave CitrusPi's ntfy
-alerts and heartbeat on until HA notifications are tested.
+alerts on until HA notifications are tested. HA cannot notify you when HA itself or the
+home's power or internet is down.
 
 ## Behavior when things fail
 

@@ -1,4 +1,4 @@
-"""Tests for CitrusPi synchronous alerting and heartbeat module."""
+"""Tests for CitrusPi synchronous alerting module."""
 
 from __future__ import annotations
 
@@ -29,7 +29,6 @@ def base_config() -> Config:
     return Config(
         ntfy_url="https://ntfy.sh",
         ntfy_topic="test-topic",
-        heartbeat_url="https://heartbeat.example.com/ping",
         temp_min_crit_f=38.0,
         temp_min_warn_f=44.0,
         temp_max_crit_f=85.0,
@@ -395,33 +394,6 @@ def test_send_ntfy_no_topic_is_noop() -> None:
         mock_post.assert_not_called()
 
 
-def test_send_heartbeat_swallows_network_errors(base_config: Config) -> None:
-    alerts = AlertManager(base_config)
-
-    with patch("httpx.get", side_effect=Exception("503 Service Unavailable")):
-        # Must not raise
-        alerts.send_heartbeat()
-
-
-def test_send_heartbeat_noop_when_empty() -> None:
-    cfg = Config(heartbeat_url="")
-    alerts = AlertManager(cfg)
-
-    with patch("httpx.get") as mock_get:
-        alerts.send_heartbeat()
-        mock_get.assert_not_called()
-
-
-def test_send_heartbeat_success(base_config: Config) -> None:
-    alerts = AlertManager(base_config)
-
-    with patch("httpx.get") as mock_get:
-        mock_get.return_value = MagicMock(status_code=200, raise_for_status=lambda: None)
-        ok = alerts.send_heartbeat()
-        assert ok is True
-        mock_get.assert_called_once_with("https://heartbeat.example.com/ping", timeout=3.0)
-
-
 # ── 7. CLI --test-alert Tests ───────────────────────────────────────────────
 
 
@@ -431,13 +403,11 @@ def test_cli_test_alert_success() -> None:
     with (
         patch("sys.argv", ["citruspi", "--test-alert"]),
         patch("citruspi.alerts.AlertManager.send_ntfy", return_value=True) as mock_ntfy,
-        patch("citruspi.alerts.AlertManager.send_heartbeat", return_value=True) as mock_hb,
         pytest.raises(SystemExit) as exc_info,
     ):
         main()
     mock_ntfy.assert_called_once()
     assert mock_ntfy.call_args[1]["priority"] == "urgent"
-    mock_hb.assert_called_once()
     assert exc_info.value.code == 0
 
 
@@ -447,11 +417,9 @@ def test_cli_test_alert_failure() -> None:
     with (
         patch("sys.argv", ["citruspi", "--test-alert"]),
         patch("citruspi.alerts.AlertManager.send_ntfy", return_value=False) as mock_ntfy,
-        patch("citruspi.alerts.AlertManager.send_heartbeat", return_value=True) as mock_hb,
         pytest.raises(SystemExit) as exc_info,
     ):
         main()
     mock_ntfy.assert_called_once()
-    mock_hb.assert_called_once()
     assert exc_info.value.code == 1
 

@@ -180,12 +180,13 @@ ANALYSIS_SYSTEM_INSTRUCTION = (
     "- If only today's photo is provided, describe current condition only. Changes cannot be "
     "assessed: leave each change field empty and set leaf_drop to false. "
     "Visible fallen leaves alone do not establish new leaf drop.\n\n"
-    "Status reflects the strongest visible concern today, not just whether it changed:\n"
+    "Status reflects what needs attention now, not every visible problem:\n"
     "- healthy: no visible concerns; continue monitoring.\n"
-    "- watch: minor or uncertain concern; check again.\n"
-    "- alert: clear concern warranting inspection (obvious wilting, widespread yellowing or "
-    "browning, substantial new leaf drop, or a minor problem clearly worsening), "
-    "even if it is ongoing or this is the first photo.\n\n"
+    "- watch: a stable or ongoing concern, or a minor or uncertain one; check again.\n"
+    "- alert: a clear concern that is new or clearly worse than the reference photos (such as "
+    "spreading yellowing or browning, or substantial new leaf drop), or urgent on its own "
+    "(obvious wilting or collapse).\n"
+    "With only today's photo, use alert only for urgent concerns; otherwise use watch.\n\n"
     "Output plain text in the JSON fields, without Markdown.\n"
     "- summary: one short headline (at most 15 words) highlighting the main concern "
     "or that no visible concerns were found.\n"
@@ -244,7 +245,7 @@ ANALYSIS_RESPONSE_SCHEMA: dict[str, Any] = {
         "status": {
             "type": "STRING",
             "enum": ["healthy", "watch", "alert"],
-            "description": "Strongest visible concern today, including ongoing concerns.",
+            "description": "Alert only for new, clearly worsening, or urgent concerns.",
         },
     },
     "required": ["summary", "trees", "leaf_drop", "status"],

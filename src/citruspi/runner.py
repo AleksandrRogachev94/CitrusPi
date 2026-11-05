@@ -69,7 +69,7 @@ def sensor_tick(
     store: Store,
     alerts: AlertManager,
 ) -> Reading:
-    """Execute a single sensor poll cycle: read -> store -> evaluate alerts -> heartbeat."""
+    """Execute a single sensor poll cycle: read -> store -> evaluate alerts."""
     reading = sensors.read()
     store.insert(reading)
     logger.debug("📊 Poll: %s", reading)
@@ -78,11 +78,6 @@ def sensor_tick(
         alerts.evaluate(reading)
     except Exception:
         logger.exception("Alert evaluation error")
-
-    try:
-        alerts.send_heartbeat()
-    except Exception:
-        logger.exception("Heartbeat error")
 
     return reading
 

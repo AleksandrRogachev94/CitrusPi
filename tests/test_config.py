@@ -51,7 +51,6 @@ def test_default_config() -> None:
     assert not hasattr(cfg, "soil_moisture_address")
     assert cfg.ntfy_url == "https://ntfy.sh"
     assert cfg.ntfy_topic == ""
-    assert cfg.heartbeat_url == ""
     assert cfg.temp_min_crit_f == 38.0
     assert cfg.temp_min_warn_f == 44.0
     assert cfg.temp_max_crit_f == 85.0
@@ -109,13 +108,11 @@ def test_yaml_override(tmp_path: Path) -> None:
 
 def test_alerting_env_overrides(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("CITRUSPI_NTFY_TOPIC", "my-lemon-tent")
-    monkeypatch.setenv("CITRUSPI_HEARTBEAT_URL", "https://heartbeat.example.com/snitch")
     monkeypatch.setenv("CITRUSPI_AI_API_KEY", "env-api-key-xyz")
     empty_cfg = tmp_path / "empty.yaml"
     empty_cfg.write_text("{}")
     cfg = load_config(str(empty_cfg))
     assert cfg.ntfy_topic == "my-lemon-tent"
-    assert cfg.heartbeat_url == "https://heartbeat.example.com/snitch"
     assert cfg.ai_api_key == "env-api-key-xyz"
 
 
