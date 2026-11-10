@@ -70,7 +70,13 @@ def test_discovery_contract_and_credentials(bridge):
     template = Template(entities["root_temp_c"]["availability"][1]["value_template"])
     assert template.render(value_json={"root_temp_c": None}) == "offline"
     assert template.render(value_json={"root_temp_c": 0}) == "online"
-    assert entities["daily_photo"]["url_topic"].endswith("/photo/url")
+    photo = entities["daily_photo"]
+    assert photo["image_topic"].endswith("/photo/image")
+    assert photo["content_type"] == "image/jpeg"
+    assert "url_topic" not in photo  # HA must not fetch from the Pi by hostname
+    photo_available = Template(photo["availability"][1]["value_template"])
+    assert photo_available.render(value_json={"date": "2026-11-03"}) == "online"
+    assert photo_available.render(value_json={"date": None}) == "offline"
     assert entities["assessment"]["options"] == ["healthy", "watch", "alert"]
     assert "state_class" not in entities["assessment"]
 
@@ -127,15 +133,29 @@ def test_auth_rejection_does_not_claim_online(bridge):
     assert bridge.client.messages == []
 
 
-def test_photo_url_is_dated_and_retained(bridge):
+def test_photo_bytes_are_published_retained_before_metadata(bridge):
     path = bridge.config.captures_dir / "2026-11-03.jpg"
-    path.write_bytes(b"image")
+    path.write_bytes(b"\xff\xd8jpeg-bytes")
     bridge.publish_metadata()
+    topic, payload, qos, retain = bridge.client.latest("photo/image")
+    assert payload == b"\xff\xd8jpeg-bytes"
+    assert (qos, retain) == (1, True)
     assert bridge.client.payload("photo/metadata")["date"] == "2026-11-03"
-    assert bridge.client.latest("photo/url")[1].startswith(
-        "http://citruspi.local/captures/2026-11-03.jpg?v="
-    )
-    assert bridge.client.latest("photo/url")[2:] == (1, True)
+    topics = [m[0] for m in bridge.client.messages]
+    assert topics.index(topic) < topics.index(bridge.client.latest("photo/metadata")[0])
+    assert not any(t.endswith("/photo/url") for t in topics)
+
+
+def test_no_photo_clears_retained_image_and_marks_unavailable(bridge):
+    bridge.publish_metadata()
+    assert bridge.client.latest("photo/image")[1:] == (b"", 1, True)
+    assert bridge.client.payload("photo/metadata")["date"] is None
+
+
+def test_reconnect_clears_retired_photo_url_topic(bridge):
+    connect(bridge)
+    bridge.tick()
+    assert bridge.client.latest("photo/url")[1:] == ("", 1, True)
 
 
 def test_dark_report_does_not_assert_health_or_no_leaf_drop(bridge):
@@ -276,7 +296,7 @@ def test_photo_notification_publishes_without_waiting_for_timer(bridge):
     bridge.store.updates.notify("photo")
     bridge.tick()
     assert bridge.client.payload("photo/metadata")["date"] == "2026-11-03"
-    assert "2026-11-03.jpg" in bridge.client.latest("photo/url")[1]
+    assert bridge.client.latest("photo/image")[1] == b"image"
 
 
 def test_pending_updates_are_bounded_and_new_signals_survive_take(bridge):

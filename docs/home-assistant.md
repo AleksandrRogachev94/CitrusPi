@@ -6,9 +6,10 @@ web app, SQLite history, plug monitoring, and alerts keep working as before. Cit
 only publishes data; it accepts no MQTT commands and controls no plugs.
 
 Both CitrusPi and Home Assistant connect to an MQTT **broker**. CitrusPi publishes
-to it and HA subscribes. Port 8123 is HA's web port, not an MQTT port. HA downloads
-JPEGs from the Pi over HTTP, using the URL CitrusPi publishes. HA reads the Kasa plugs
-directly, and CitrusPi keeps polling them for its own dashboard.
+to it and HA subscribes. Port 8123 is HA's web port, not an MQTT port. The daily photo
+also travels over MQTT as JPEG bytes, so HA never connects to the Pi and never needs to
+resolve `citruspi.local`. HA reads the Kasa plugs directly, and CitrusPi keeps polling
+them for its own dashboard.
 
 ## Setup
 
@@ -36,8 +37,10 @@ directly, and CitrusPi keeps polling them for its own dashboard.
      base_url: "http://citruspi.local"
    ```
 
-   `base_url` is the **Pi's** address as seen from HA. If HA cannot resolve
-   `citruspi.local`, use the Pi's reserved IP.
+   `base_url` is the **Pi's** web address. It is only used for links: the device page's
+   "Visit" link and the report's `photo_url`. HA doesn't fetch anything from it, so
+   photos keep working even when avahi renames the Pi (for example to `citruspi-2.local`)
+   after a network drop. Use the Pi's reserved IP if you want those links to survive that too.
 
    `CITRUSPI_MQTT_HOST`, `_USERNAME`, `_PASSWORD`, and `_BASE_URL` can override these
    in the systemd service environment once the `mqtt` section exists. For a TLS
@@ -65,7 +68,7 @@ If you use broker ACLs, allow CitrusPi to publish to `citruspi/citruspi/#` and
 | Atmospheric pressure | hPa; disabled by default |
 | Last reading | Sample timestamp; diagnostic |
 | Connection | MQTT connection status; diagnostic |
-| Daily photo | Latest archived daily JPEG |
+| Daily photo | Latest archived daily JPEG, sent as retained bytes on `citruspi/<id>/photo/image` |
 | Last daily capture | Modification time of that image |
 | Plant assessment | `healthy`, `watch`, or `alert`; unknown for a skipped analysis |
 | Last successful analysis | Creation time of the last successful report |
@@ -176,8 +179,9 @@ home's power or internet is down.
 
 ## Behavior when things fail
 
-- Discovery, availability, photo details, and reports are retained on the broker, so
-  HA gets them back when it restarts. Live readings are not retained.
+- Discovery, availability, the daily photo (about 0.5 MB), photo details, and reports are
+  retained on the broker, so HA gets them back when it restarts. Live readings are not
+  retained.
 - On connection loss, the broker publishes `offline` for CitrusPi. On reconnect,
   CitrusPi republishes all retained state and resumes with new readings. Readings
   taken during an outage stay in SQLite and are not sent to HA.

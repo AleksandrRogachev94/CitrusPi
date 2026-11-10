@@ -56,7 +56,10 @@ class HomeAssistantPublisher:
         self.connected.clear()
 
     def _publish(self, topic: str, payload: Any, *, retain: bool = False) -> None:
-        encoded = payload if isinstance(payload, str) else json.dumps(payload, allow_nan=False)
+        encoded = (
+            payload if isinstance(payload, (str, bytes))
+            else json.dumps(payload, allow_nan=False)
+        )
         result = self.client.publish(topic, encoded, qos=1 if retain else 0, retain=retain)
         if result.rc != 0:
             raise ConnectionError("MQTT publication not accepted")
@@ -136,17 +139,20 @@ class HomeAssistantPublisher:
             device_class="connectivity",
             entity_category="diagnostic",
         )
+        # The JPEG itself travels over MQTT, so HA never fetches from the Pi and never
+        # depends on resolving its hostname (avahi renames it after network drops).
         add(
             "daily_photo",
             "Daily photo",
             component="image",
-            url_topic=f"{self.root}/photo/url",
+            image_topic=f"{self.root}/photo/image",
+            content_type="image/jpeg",
             availability_mode="all",
             availability=[
                 service,
                 {
                     "topic": f"{self.root}/photo/metadata",
-                    "value_template": "{{ 'online' if value_json.url else 'offline' }}",
+                    "value_template": "{{ 'online' if value_json.date else 'offline' }}",
                 },
             ],
         )
@@ -180,17 +186,25 @@ class HomeAssistantPublisher:
         changed = {"photo", "analysis_report"} if changed is None else changed
         if "photo" in changed:
             metadata: dict[str, Any] = {"date": None, "captured_at": None, "url": None}
+            image = b""
             photo = camera.latest_photo(self.config)
             if photo:
-                stat = (self.config.captures_dir / photo["filename"]).stat()
-                if stat.st_size:
+                path = self.config.captures_dir / photo["filename"]
+                # Captures are swapped in with os.replace, so this never reads a partial file.
+                image = path.read_bytes()
+                if image:
                     metadata = {
                         "date": photo["date"],
-                        "captured_at": datetime.fromtimestamp(stat.st_mtime, UTC).isoformat(),
+                        "captured_at": datetime.fromtimestamp(
+                            path.stat().st_mtime, UTC
+                        ).isoformat(),
+                        # A link for people only; HA receives the bytes on photo/image.
                         "url": self.settings.base_url.rstrip("/") + photo["url"],
                     }
+            # Image before metadata, so the entity turns available with its picture already
+            # in place. An empty retained payload clears the broker's copy when there is none.
+            self._publish(f"{self.root}/photo/image", image, retain=True)
             self._publish(f"{self.root}/photo/metadata", metadata, retain=True)
-            self._publish(f"{self.root}/photo/url", metadata["url"] or "", retain=True)
         if "analysis_report" in changed:
             report = self.store.latest_report()
             success = self.store.latest_successful_report()
@@ -224,6 +238,8 @@ class HomeAssistantPublisher:
             if restore:
                 for topic, payload in self.discovery():
                     self._publish(topic, payload, retain=True)
+                # Clear the retired URL topic's retained copy (photos now go on photo/image).
+                self._publish(f"{self.root}/photo/url", "", retain=True)
                 self._publish(f"{self.root}/availability", "online", retain=True)
             reading = updates.get("reading")
             if reading:
