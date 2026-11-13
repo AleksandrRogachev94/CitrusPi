@@ -50,7 +50,7 @@ def connect(bridge):
 
 def test_discovery_contract_and_credentials(bridge):
     discovery = bridge.discovery()
-    assert len(discovery) == 11
+    assert len(discovery) == 12
     assert len({p["unique_id"] for _, p in discovery}) == len(discovery)
     serialized = json.dumps(discovery)
     assert "private-user" not in serialized
@@ -93,6 +93,29 @@ def test_live_samples_once_unretained_with_nulls(bridge):
     assert json.loads(payload)["timestamp"] == now.isoformat()
     bridge.tick()
     assert sum(m[0] == topic for m in bridge.client.messages) == 1
+
+
+def test_wifi_signal_published_with_readings(bridge):
+    connect(bridge)
+    wifi_entity = next(p for t, p in bridge.discovery() if t.endswith("/wifi_signal/config"))
+    assert wifi_entity["device_class"] == "signal_strength"
+    assert wifi_entity["unit_of_measurement"] == "dBm"
+    assert wifi_entity["entity_category"] == "diagnostic"
+    assert wifi_entity["value_template"] == "{{ value_json.wifi_dbm }}"
+    online = Template(wifi_entity["availability"][1]["value_template"])
+    assert online.render(value_json={"wifi_dbm": -71}) == "online"
+    assert online.render(value_json={"wifi_dbm": None}) == "offline"
+
+    reading = Reading.create(timestamp=datetime.now(UTC).isoformat(), temp_c=20, humidity=50)
+    sample = {"interface": "wlan0", "dbm": -71, "bars": 2, "label": "Fair"}
+    with patch("citruspi.wifi.read_signal", return_value=sample):
+        bridge.store.insert(reading)
+        bridge.tick()
+    assert bridge.client.payload("readings")["wifi_dbm"] == -71
+    with patch("citruspi.wifi.read_signal", return_value=None):
+        bridge.store.insert(reading)
+        bridge.tick()
+    assert bridge.client.payload("readings")["wifi_dbm"] is None
 
 
 def test_reconnect_republishes_discovery_not_stale_samples(bridge):

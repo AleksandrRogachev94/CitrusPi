@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from citruspi import camera
+from citruspi import camera, wifi
 from citruspi.alerts import AlertManager
 from citruspi.config import Config
 from citruspi.sensors import SensorHub
@@ -127,6 +127,12 @@ def create_app(
     @app.get("/api/current")
     def api_current() -> dict[str, Any]:
         return store.latest() or {}
+
+    @app.get("/api/wifi")
+    def api_wifi() -> dict[str, Any]:
+        """Wi-Fi signal of the Pi; `available` is false when it has no wireless link."""
+        signal = wifi.read_signal()
+        return {"available": True, **signal} if signal else {"available": False}
 
     @app.get("/api/history")
     def api_history(hours: int = 24) -> list[dict[str, Any]]:

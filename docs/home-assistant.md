@@ -66,6 +66,7 @@ If you use broker ACLs, allow CitrusPi to publish to `citruspi/citruspi/#` and
 | Humidity | Relative humidity, % |
 | VPD | Calculated air VPD, kPa |
 | Atmospheric pressure | hPa; disabled by default |
+| Wi-Fi signal | The Pi's Wi-Fi strength in dBm, sent with each reading; diagnostic. Unavailable if the Pi has no wireless link |
 | Last reading | Sample timestamp; diagnostic |
 | Connection | MQTT connection status; diagnostic |
 | Daily photo | Latest archived daily JPEG, sent as retained bytes on `citruspi/<id>/photo/image` |

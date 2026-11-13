@@ -26,6 +26,15 @@
                     <a href="/gallery" class="{% if '/gallery' in request.url.path %}active{% endif %}">Gallery</a>
                     <a href="/docs" target="_blank">API</a>
                 </nav>
+                <span id="wifi-badge" class="wifi" hidden>
+                    <svg viewBox="0 0 16 12" width="16" height="12" aria-hidden="true">
+                        <rect x="0" y="8" width="3" height="4" rx="0.5"/>
+                        <rect x="4.3" y="5.5" width="3" height="6.5" rx="0.5"/>
+                        <rect x="8.6" y="3" width="3" height="9" rx="0.5"/>
+                        <rect x="12.9" y="0" width="3" height="12" rx="0.5"/>
+                    </svg>
+                    <span id="wifi-dbm"></span>
+                </span>
                 <button type="button" id="theme-toggle-btn" class="theme-toggle" onclick="toggleTheme()" title="Toggle Dark/Light Mode">
                     🌙
                 </button>
@@ -50,6 +59,20 @@
             if (typeof updateChartThemes === 'function') updateChartThemes();
         }
         updateThemeButton();
+
+        async function refreshWifi() {
+            const badge = document.getElementById('wifi-badge');
+            try {
+                const w = await (await fetch('/api/wifi')).json();
+                badge.hidden = !w.available;
+                if (!w.available) return;
+                badge.dataset.bars = w.bars;
+                badge.title = `Wi-Fi ${w.label}: ${w.dbm} dBm (${w.interface})`;
+                document.getElementById('wifi-dbm').textContent = `${w.dbm} dBm`;
+            } catch (e) { /* keep the last value */ }
+        }
+        refreshWifi();
+        setInterval(refreshWifi, 30000);
     </script>
 </body>
 </html>

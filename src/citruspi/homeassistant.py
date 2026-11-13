@@ -1,4 +1,4 @@
-"""Optional MQTT Discovery publisher. No hardware reads, plug entities, or commands.
+"""Optional MQTT Discovery publisher. No sensor reads, plug entities, or commands.
 
 Producers signal the worker after committed changes. MQTT failure cannot stall collection,
 capture, or analysis. Live telemetry uses QoS 0 without retention/queue replay;
@@ -15,7 +15,7 @@ import threading
 from datetime import UTC, datetime
 from typing import Any
 
-from citruspi import camera
+from citruspi import camera, wifi
 from citruspi.config import Config
 from citruspi.store import Store
 
@@ -97,8 +97,10 @@ class HomeAssistantPublisher:
             entities.append((topic, payload))
 
         telemetry = f"{self.root}/readings"
-        for key, name, device_class, unit in MEASUREMENTS:
-            options: dict[str, Any] = {
+
+        def live(key: str, unit: str) -> dict[str, Any]:
+            """Options for a value in the readings message; unavailable when it is null."""
+            return {
                 "state_topic": telemetry,
                 "value_template": "{{ value_json." + key + " }}",
                 "unit_of_measurement": unit,
@@ -115,11 +117,21 @@ class HomeAssistantPublisher:
                     },
                 ],
             }
+
+        for key, name, device_class, unit in MEASUREMENTS:
+            options = live(key, unit)
             if device_class:
                 options["device_class"] = device_class
             if key == "pressure":
                 options["enabled_by_default"] = False
             add(key, name, **options)
+        add(
+            "wifi_signal",
+            "Wi-Fi signal",
+            device_class="signal_strength",
+            entity_category="diagnostic",
+            **live("wifi_dbm", "dBm"),
+        )
         add(
             "last_reading",
             "Last reading",
@@ -249,6 +261,8 @@ class HomeAssistantPublisher:
                     payload[key] = (
                         value if isinstance(value, (int, float)) and math.isfinite(value) else None
                     )
+                signal = wifi.read_signal()
+                payload["wifi_dbm"] = signal["dbm"] if signal else None
                 self._publish(f"{self.root}/readings", payload)
             changed = set(updates) & {"photo", "analysis_report"}
             if restore or changed:

@@ -303,3 +303,10 @@ def test_temperature_range_hidden_when_there_are_no_measurements(tmp_path: Path)
         assert "24h · Low" not in client.get(url).text
 
 
+def test_api_wifi_endpoint(client):
+    sig = {"interface": "wlan0", "dbm": -60, "bars": 3, "label": "Good"}
+    with patch("citruspi.wifi.read_signal", return_value=sig):
+        assert client.get("/api/wifi").json() == {"available": True, **sig}
+    with patch("citruspi.wifi.read_signal", return_value=None):
+        assert client.get("/api/wifi").json() == {"available": False}
+    assert 'id="wifi-badge"' in client.get("/").text

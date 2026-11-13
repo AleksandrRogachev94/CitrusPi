@@ -122,6 +122,36 @@ body {
     background: var(--orange-glow);
 }
 
+.wifi {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.wifi[hidden] {
+    display: none;
+}
+
+.wifi svg rect {
+    fill: currentColor;
+    opacity: 0.25;
+}
+
+/* Light up as many bars as the signal earns (data-bars = 0–4). */
+.wifi[data-bars="1"] svg rect:nth-child(-n+1),
+.wifi[data-bars="2"] svg rect:nth-child(-n+2),
+.wifi[data-bars="3"] svg rect:nth-child(-n+3),
+.wifi[data-bars="4"] svg rect:nth-child(-n+4) {
+    opacity: 1;
+}
+
+.wifi[data-bars="1"] { color: var(--red); }
+.wifi[data-bars="2"] { color: var(--orange); }
+
 .theme-toggle {
     background: var(--surface-sub);
     border: 1px solid var(--border);
@@ -1201,6 +1231,9 @@ canvas {
     .nav-links a {
         font-size: 0.75rem;
         padding: 0.2rem 0.35rem;
+    }
+    #wifi-dbm {
+        display: none;  /* icon only on phones; dBm stays in the tooltip */
     }
     .theme-toggle {
         padding: 0.2rem 0.35rem;
